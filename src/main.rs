@@ -42,8 +42,8 @@ impl Board {
         let (current_tile, current_position) = self.get_location(roll.camel);
         let mut target_tile = usize::min(current_tile + roll.spaces as usize, 16);
 
-        if !self.desert[target_tile] {
-            if self.oasis[target_tile] {
+        if target_tile >= 16 || !self.desert[target_tile] {
+            if !(target_tile >= 16) && self.oasis[target_tile] {
                 target_tile += 1;
             }
             let mut target_position = 0;
@@ -60,20 +60,21 @@ impl Board {
             new_board.positions[current_tile][current_position..current_position + moving_stack_height].clone_from_slice(static_slice);
         } else {
             target_tile -= 1;
-            let mut target_position = 0;
-            for camel_num in self.positions[target_tile] {
+            let mut stack_height = 0;
+            for camel_num in self.positions[current_tile] {
                 if camel_num <= 0 {
                     break
                 }
-                target_position += 1;
+                stack_height += 1;
             }
-            let moving_stack_height = 5 - usize::max(current_position, target_position);
+            let moving_stack_height = stack_height - current_position;
+            let static_slice = &self.positions[target_tile + 1][5 - moving_stack_height..5];
+            new_board.positions[current_tile][current_position..current_position + moving_stack_height].clone_from_slice(static_slice);
+            let preexisting_slice_height = 5 - moving_stack_height;
+            let preexisting_stack = new_board.positions[target_tile];
+            new_board.positions[target_tile][moving_stack_height..moving_stack_height + preexisting_slice_height].clone_from_slice(&preexisting_stack[0..preexisting_slice_height]);
             let moving_slice = &self.positions[current_tile][current_position..current_position + moving_stack_height];
             new_board.positions[target_tile][0..moving_stack_height].clone_from_slice(moving_slice);
-            let preexisting_slice = &self.positions[target_tile][0..target_position];
-            new_board.positions[target_tile][moving_stack_height..moving_stack_height + target_position].clone_from_slice(preexisting_slice);
-            let static_slice = &self.positions[target_tile][target_position..target_position + moving_stack_height];
-            new_board.positions[current_tile][current_position..current_position + moving_stack_height].clone_from_slice(static_slice);
         }
         
         if new_board.all_rolled() {
@@ -106,12 +107,12 @@ impl Board {
 
     fn camel_order(&self) -> [u8; NUM_CAMELS] {
         let mut camel_order = [0; NUM_CAMELS];
-        let mut idx = 4;
+        let mut idx = 5;
         for tile in self.positions {
             for camel in tile {
                 if camel > 0 {
-                    camel_order[idx] = camel;
                     idx -= 1;
+                    camel_order[idx] = camel;
                 }
             }
         }
@@ -145,43 +146,55 @@ impl Board {
         return potential_moves
     }
 
-    fn solve(&self) -> SolveResult {
+    fn solve_game(&self, depth: u8) {
+
+    }
+
+    fn solve(&self, depth: u8) -> SolveResult {
         let current_round = self.round;
 
         let mut num_game_terminal = 0;
-        let mut game_position_accumulator: [[i16; NUM_CAMELS]; NUM_CAMELS] = [[0; NUM_CAMELS]; NUM_CAMELS];
+        let mut game_position_accumulator: [[u64; NUM_CAMELS]; NUM_CAMELS] = [[0; NUM_CAMELS]; NUM_CAMELS];
 
         let mut num_round_terminal = 0;
-        let mut round_position_accumulator: [[i16; NUM_CAMELS]; NUM_CAMELS] = [[0; NUM_CAMELS]; NUM_CAMELS];
-        let mut tile_landings_accumulator: [i16; BOARD_SIZE] = [0; BOARD_SIZE];
+        let mut round_position_accumulator: [[u16; NUM_CAMELS]; NUM_CAMELS] = [[0; NUM_CAMELS]; NUM_CAMELS];
+        let mut tile_landings_accumulator: [u16; BOARD_SIZE] = [0; BOARD_SIZE];
 
         let mut stack: LinkedList<Board> = LinkedList::new();
         stack.push_back(*self);
 
         while let Some(current_node) = stack.pop_front() {
             for roll in current_node.potential_moves() {
-                let board = self.update(roll);
+                let board = current_node.update(roll);
                 if !board.is_terminal() {
-                    if board.round == current_round {
-                        let (tile, _) = self.get_location(roll.camel);
-                        let landed_tile = tile + roll.spaces as usize;
-                        tile_landings_accumulator[landed_tile] += 1;
-                        if board.all_rolled() {
-                            num_round_terminal += 1;
-                            let positions = board.camel_order();
-                            for (position, camel_num) in positions.iter().enumerate() {
-                                round_position_accumulator[*camel_num as usize][position] += 1;
+                    if board.round - current_round >= depth {
+                        num_game_terminal += 1;
+                        let positions = board.camel_order();
+                        for (position, camel_num) in positions.iter().enumerate() {
+                            game_position_accumulator[*camel_num as usize - 1][position] += 1;
+                        }
+                    } else {
+                        if board.round == current_round {
+                            let (tile, _) = self.get_location(roll.camel);
+                            let landed_tile = tile + roll.spaces as usize;
+                            tile_landings_accumulator[landed_tile] += 1;
+                            if board.all_rolled() {
+                                num_round_terminal += 1;
+                                let positions = board.camel_order();
+                                for (position, camel_num) in positions.iter().enumerate() {
+                                    round_position_accumulator[*camel_num as usize - 1][position] += 1;
+                                }
                             }
                         }
+                        stack.push_front(board);
                     }
                 } else {
                     num_game_terminal += 1;
                     let positions = board.camel_order();
                     for (position, camel_num) in positions.iter().enumerate() {
-                        game_position_accumulator[*camel_num as usize][position] += 1;
+                        game_position_accumulator[*camel_num as usize - 1][position] += 1;
                     }
                 }
-                stack.push_front(board);
             }
         }
         let mut game_position_odds = [[0.0; NUM_CAMELS]; NUM_CAMELS];
@@ -255,14 +268,43 @@ fn main() {
     let mut desert = [false; 16];
     desert[2] = true;
     let board = Board::new(positions, rolls, oasis, desert);
-    let roll = Roll {
-        camel: 3,
-        spaces: 1,
-    };
-    let board = board.update(roll);
-    let roll = Roll {
-        camel: 1,
-        spaces: 2,
-    };
-    println!("{}", board.update(roll));
+    // let roll = Roll {
+    //     camel: 1,
+    //     spaces: 1,
+    // };
+    // println!("{} {}", roll.camel, roll.spaces);
+    // board = board.update(roll);
+    // println!("{}", board);
+    // let roll = Roll {
+    //     camel: 5,
+    //     spaces: 3,
+    // };
+    // println!("{} {}", roll.camel, roll.spaces);
+    // board = board.update(roll);
+    // println!("{}", board);
+    // let roll = Roll {
+    //     camel: 2,
+    //     spaces: 1,
+    // };
+    // println!("{} {}", roll.camel, roll.spaces);
+    // board = board.update(roll);
+    // println!("{}", board);
+
+    // for _ in 0..100000 {
+    //     println!("Start");
+    //     let mut board = Board::new(positions, rolls, oasis, desert);
+    //     for _ in 0..10 {
+    //         if board.is_terminal() {
+    //             break
+    //         }
+    //         let roll = Roll {
+    //             camel: rand::thread_rng().gen_range(1..6),
+    //             spaces: rand::thread_rng().gen_range(1..4),
+    //         };
+    //         println!("{} {}", roll.camel, roll.spaces);
+    //         board = board.update(roll);
+    //         println!("{}", board);
+    //     }
+    // }
+    board.solve(2);
 }
