@@ -1,3 +1,4 @@
+use core::num;
 use std::collections::LinkedList;
 use std::fmt;
 
@@ -12,24 +13,60 @@ struct Roll {
 }
 
 #[derive(Copy, Clone)]
+struct CamelOdds {
+    odds: [[f64; NUM_CAMELS]; NUM_CAMELS], //Odds of a camel getting a position, indexed by camel then position
+}
+
+impl fmt::Display for CamelOdds {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{: <5}", "Camel")?;
+        for i in 1..NUM_CAMELS+1 {
+            write!(f, " | Pos {: <1}", i)?;
+        }
+        write!(f, "\n")?;
+        for (camel_number, odds) in self.odds.iter().enumerate() {
+            write!(f, "{: <5}", camel_number + 1)?;
+            for (position, odd) in odds.iter().enumerate() {
+                write!(f, " | {:.3}", odd)?;
+            }
+            write!(f, "\n")?;
+        }
+        Ok(())
+    }
+}
+
+#[derive(Copy, Clone)]
+struct TileOdds {
+    odds: [f64; BOARD_SIZE],
+}
+
+impl fmt::Display for TileOdds {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{: <5}", "Tile")?;
+        for i in 1..BOARD_SIZE+1 {
+            write!(f, " | {: <4}", i)?;
+        }
+        write!(f, "\n")?;
+        write!(f, "{: <5}", "Odds")?;
+        for (tile_number, odd) in self.odds.iter().enumerate() {
+            write!(f, " | {:.2}", odd)?;
+        }
+        write!(f, "\n")?;
+        Ok(())
+    }
+}
+
+#[derive(Copy, Clone)]
 struct Board {
-    round: u8,
     positions: [[u8; NUM_CAMELS]; BOARD_SIZE + 1],
     rolls: [bool; NUM_CAMELS],
     oasis: [bool; BOARD_SIZE],
     desert: [bool; BOARD_SIZE],
 }
 
-struct SolveResult {
-    game_position_odds: [[f64; NUM_CAMELS]; NUM_CAMELS], //Odds of a camel getting a position, indexed by camel then position
-    round_position_odds: [[f64; NUM_CAMELS]; NUM_CAMELS],
-    round_tile_odds: [f64; BOARD_SIZE]
-}
-
 impl Board {
     fn new(positions: [[u8; NUM_CAMELS]; BOARD_SIZE + 1], rolls: [bool; NUM_CAMELS], oasis: [bool; BOARD_SIZE], desert: [bool; BOARD_SIZE]) -> Self {
         Board {
-            round: 0,
             positions: positions,
             rolls: rolls,
             oasis: oasis,
@@ -79,7 +116,6 @@ impl Board {
         
         if new_board.all_rolled() {
             new_board.rolls = [false; NUM_CAMELS];
-            new_board.round += 1;
         }
         new_board.rolls[roll.camel as usize - 1] = true;
         return new_board
@@ -146,18 +182,40 @@ impl Board {
         return potential_moves
     }
 
-    fn solve_game(&self, depth: u8) {
+    fn solve_game(&self, depth: u8) -> CamelOdds {
+        let mut position_accumulator: [[u64; NUM_CAMELS]; NUM_CAMELS] = [[0; NUM_CAMELS]; NUM_CAMELS];
 
+        let mut stack: LinkedList<(u8, Board)> = LinkedList::new();
+        stack.push_back((0, *self));
+
+        while let Some((current_depth, current_node)) = stack.pop_front() {
+            for roll in current_node.potential_moves() {
+                let next_node = current_node.update(roll);
+                if !next_node.is_terminal() && current_depth <= depth{
+                    stack.push_front((current_depth + 1, next_node));
+                } else {
+                    let positions = next_node.camel_order();
+                    for (position, camel_num) in positions.iter().enumerate() {
+                        position_accumulator[*camel_num as usize - 1][position] += 1;
+                    }
+                }
+            }
+        }
+        let mut num_terminal = 0;
+        for position_num in position_accumulator[0] {
+            num_terminal += position_num;
+        }
+        let mut position_odds = [[0.0; NUM_CAMELS]; NUM_CAMELS];
+        for (x, vector) in position_accumulator.iter().enumerate() {
+            for (y, sum) in vector.iter().enumerate() {
+                position_odds[x][y] = *sum as f64 / num_terminal as f64;
+            }
+        }
+        CamelOdds {odds: position_odds}
     }
 
-    fn solve(&self, depth: u8) -> SolveResult {
-        let current_round = self.round;
-
-        let mut num_game_terminal = 0;
-        let mut game_position_accumulator: [[u64; NUM_CAMELS]; NUM_CAMELS] = [[0; NUM_CAMELS]; NUM_CAMELS];
-
-        let mut num_round_terminal = 0;
-        let mut round_position_accumulator: [[u16; NUM_CAMELS]; NUM_CAMELS] = [[0; NUM_CAMELS]; NUM_CAMELS];
+    fn solve_round(&self) -> (CamelOdds, TileOdds) {
+        let mut position_accumulator: [[u16; NUM_CAMELS]; NUM_CAMELS] = [[0; NUM_CAMELS]; NUM_CAMELS];
         let mut tile_landings_accumulator: [u16; BOARD_SIZE] = [0; BOARD_SIZE];
 
         let mut stack: LinkedList<Board> = LinkedList::new();
@@ -165,59 +223,41 @@ impl Board {
 
         while let Some(current_node) = stack.pop_front() {
             for roll in current_node.potential_moves() {
-                let board = current_node.update(roll);
-                if !board.is_terminal() {
-                    if board.round - current_round >= depth {
-                        num_game_terminal += 1;
-                        let positions = board.camel_order();
-                        for (position, camel_num) in positions.iter().enumerate() {
-                            game_position_accumulator[*camel_num as usize - 1][position] += 1;
-                        }
-                    } else {
-                        if board.round == current_round {
-                            let (tile, _) = self.get_location(roll.camel);
-                            let landed_tile = tile + roll.spaces as usize;
-                            tile_landings_accumulator[landed_tile] += 1;
-                            if board.all_rolled() {
-                                num_round_terminal += 1;
-                                let positions = board.camel_order();
-                                for (position, camel_num) in positions.iter().enumerate() {
-                                    round_position_accumulator[*camel_num as usize - 1][position] += 1;
-                                }
-                            }
-                        }
-                        stack.push_front(board);
+                let next_node = current_node.update(roll);
+                if next_node.all_rolled() || next_node.is_terminal() {
+                    let positions = next_node.camel_order();
+                    for (position, camel_num) in positions.iter().enumerate() {
+                        position_accumulator[*camel_num as usize - 1][position] += 1;
                     }
                 } else {
-                    num_game_terminal += 1;
-                    let positions = board.camel_order();
-                    for (position, camel_num) in positions.iter().enumerate() {
-                        game_position_accumulator[*camel_num as usize - 1][position] += 1;
-                    }
+                    let (tile, _) = self.get_location(roll.camel);
+                    let landed_tile = tile + roll.spaces as usize;
+                    tile_landings_accumulator[landed_tile] += 1;
+                    stack.push_front(next_node);
                 }
             }
         }
-        let mut game_position_odds = [[0.0; NUM_CAMELS]; NUM_CAMELS];
-        for (x, vector) in game_position_accumulator.iter().enumerate() {
+        let mut num_terminal = 0;
+        for position_num in position_accumulator[0] {
+            num_terminal += position_num;
+        }
+        let mut position_odds = [[0.0; NUM_CAMELS]; NUM_CAMELS];
+        for (x, vector) in position_accumulator.iter().enumerate() {
             for (y, sum) in vector.iter().enumerate() {
-                game_position_odds[x][y] = *sum as f64 / num_game_terminal as f64;
+                position_odds[x][y] = *sum as f64 / num_terminal as f64;
             }
         }
-        let mut round_position_odds = [[0.0; NUM_CAMELS]; NUM_CAMELS];
-        for (x, vector) in round_position_accumulator.iter().enumerate() {
-            for (y, sum) in vector.iter().enumerate() {
-                round_position_odds[x][y] = *sum as f64 / num_round_terminal as f64;
-            }
+        let mut total_tile_landings = 0;
+        for num_landings in tile_landings_accumulator {
+            total_tile_landings += num_landings;
         }
-        let mut round_tile_odds = [0.0; BOARD_SIZE];
+        let mut tile_odds = [0.0; BOARD_SIZE];
         for (idx, sum) in tile_landings_accumulator.iter().enumerate() {
-            round_tile_odds[idx] = *sum as f64 / num_round_terminal as f64;
+            tile_odds[idx] = *sum as f64 / total_tile_landings as f64;
         }
-        return SolveResult {
-            game_position_odds: game_position_odds,
-            round_position_odds: round_position_odds,
-            round_tile_odds: round_tile_odds,
-        };
+        println!("{}", num_terminal);
+        println!("{}", total_tile_landings);
+        (CamelOdds{odds: position_odds}, TileOdds{odds: tile_odds})
     }
 }
 
@@ -306,5 +346,9 @@ fn main() {
     //         println!("{}", board);
     //     }
     // }
-    board.solve(2);
+    let (pos, tiles) = board.solve_round();
+    println!("{}{}", pos, tiles);
+    // println!("{}", board);
+    // let pos = board.solve_game(0);
+    // println!("{}", pos);
 }
