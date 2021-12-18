@@ -1,6 +1,8 @@
-use core::num;
 use std::collections::LinkedList;
 use std::fmt;
+use std::thread;
+use std::sync::{Arc, Mutex, RwLock};
+use rayon::prelude::*;
 
 const BOARD_SIZE: usize = 16;
 const NUM_CAMELS: usize = 5;
@@ -182,25 +184,48 @@ impl Board {
         return potential_moves
     }
 
-    fn solve_game(&self, depth: u8) -> CamelOdds {
-        let mut position_accumulator: [[u64; NUM_CAMELS]; NUM_CAMELS] = [[0; NUM_CAMELS]; NUM_CAMELS];
+    fn solve_game(&self, depth: u8, workers: u8) -> CamelOdds {
+        let position_accumulator = Arc::new(RwLock::new([[0; NUM_CAMELS]; NUM_CAMELS]));
 
-        let mut stack: LinkedList<(u8, Board)> = LinkedList::new();
-        stack.push_back((0, *self));
-
-        while let Some((current_depth, current_node)) = stack.pop_front() {
-            for roll in current_node.potential_moves() {
-                let next_node = current_node.update(roll);
-                if !next_node.is_terminal() && current_depth <= depth{
-                    stack.push_front((current_depth + 1, next_node));
-                } else {
-                    let positions = next_node.camel_order();
-                    for (position, camel_num) in positions.iter().enumerate() {
-                        position_accumulator[*camel_num as usize - 1][position] += 1;
-                    }
-                }
-            }
+        let stack = Arc::new(Mutex::new(Vec::new()));
+        {
+            stack.lock().unwrap().push((0, *self));
         }
+
+        let mut worker_handles = Vec::new();
+        for _ in 0..workers {
+            let stack = Arc::clone(&stack);
+            let position_accumulator = Arc::clone(&position_accumulator);
+            let handle = thread::spawn(move || {
+                //When the stack is low, we can end up losing workers
+                let mutex_guard = stack.lock().unwrap().pop();
+                let popped_value = mutex_guard.clone();
+                drop(mutex_guard);
+                match popped_value {
+                    Some((current_depth, current_node)) => {
+                        for roll in current_node.potential_moves() {
+                            let next_node = current_node.update(roll);
+                            if !next_node.is_terminal() && current_depth < depth {
+                                stack.lock().unwrap().push((current_depth + 1, next_node));
+                            } else {
+                                let positions = next_node.camel_order();
+                                for (position, camel_num) in positions.iter().enumerate() {
+                                    position_accumulator.write().unwrap()[*camel_num as usize - 1][position] += 1;
+                                }
+                            }
+                        }
+                    },
+                    None => return,
+                }
+            });
+            worker_handles.push(handle);
+        }
+
+        for handle in worker_handles {
+            handle.join().unwrap();
+        }
+
+        let position_accumulator = position_accumulator.read().unwrap();
         let mut num_terminal = 0;
         for position_num in position_accumulator[0] {
             num_terminal += position_num;
@@ -305,50 +330,11 @@ fn main() {
     }
     let rolls = [false; 5];
     let oasis = [false; 16];
-    let mut desert = [false; 16];
-    desert[2] = true;
+    let desert = [false; 16];
     let board = Board::new(positions, rolls, oasis, desert);
-    // let roll = Roll {
-    //     camel: 1,
-    //     spaces: 1,
-    // };
-    // println!("{} {}", roll.camel, roll.spaces);
-    // board = board.update(roll);
-    // println!("{}", board);
-    // let roll = Roll {
-    //     camel: 5,
-    //     spaces: 3,
-    // };
-    // println!("{} {}", roll.camel, roll.spaces);
-    // board = board.update(roll);
-    // println!("{}", board);
-    // let roll = Roll {
-    //     camel: 2,
-    //     spaces: 1,
-    // };
-    // println!("{} {}", roll.camel, roll.spaces);
-    // board = board.update(roll);
-    // println!("{}", board);
-
-    // for _ in 0..100000 {
-    //     println!("Start");
-    //     let mut board = Board::new(positions, rolls, oasis, desert);
-    //     for _ in 0..10 {
-    //         if board.is_terminal() {
-    //             break
-    //         }
-    //         let roll = Roll {
-    //             camel: rand::thread_rng().gen_range(1..6),
-    //             spaces: rand::thread_rng().gen_range(1..4),
-    //         };
-    //         println!("{} {}", roll.camel, roll.spaces);
-    //         board = board.update(roll);
-    //         println!("{}", board);
-    //     }
-    // }
     let (pos, tiles) = board.solve_round();
-    println!("{}{}", pos, tiles);
+    println!("{}", pos);
     // println!("{}", board);
-    // let pos = board.solve_game(0);
-    // println!("{}", pos);
+    let pos = board.solve_game(4, 4);
+    println!("{}", pos);
 }
