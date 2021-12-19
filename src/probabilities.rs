@@ -39,7 +39,7 @@ impl fmt::Display for CamelOdds {
 impl fmt::Display for TileOdds {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{: <5}", "Tile")?;
-        for i in 1..self.odds.len() {
+        for i in 1..self.odds.len() + 1 {
             write!(f, " | {: <4}", i)?;
         }
         write!(f, "\n")?;
