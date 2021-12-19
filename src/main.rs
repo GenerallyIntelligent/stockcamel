@@ -1,7 +1,7 @@
 mod constants;
 mod concurrent;
 mod board;
-mod results;
+mod probabilities;
 
 fn main() {
     let mut positions = [[0; constants::NUM_CAMELS]; constants::BOARD_SIZE + 1];
@@ -13,10 +13,10 @@ fn main() {
     let mut desert = [false; 16];
     desert[3] = true;
     let board = board::Board::new(positions, rolls, oasis, desert);
-    let (pos, tiles) = board.solve_round(8);
+    let (pos, tiles) = probabilities::solve_round_from(board, 8);
     println!("{}", pos);
     println!("{}", tiles);
     // println!("{}", board);
-    let pos = board.solve_game(4, 8);
+    let pos = probabilities::solve_game_from(board, 4, 8);
     println!("{}", pos);
 }
