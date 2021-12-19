@@ -178,17 +178,10 @@ pub fn solve_round_from(board: board::Board, workers: u8) -> (CamelOdds, TileOdd
             position_odds[x][y] = *sum as f64 / num_terminal as f64;
         }
     }
-    let mut total_tile_landings = 0;
-    for num_landings in tile_landings_accumulator.tiles.iter() {
-        let num_landings: u32 = num_landings.load(atomic::Ordering::Relaxed);
-        total_tile_landings += num_landings;
-    }
     let mut tile_odds = [0.0; constants::BOARD_SIZE];
     for (idx, sum) in tile_landings_accumulator.tiles.iter().enumerate() {
         let sum: u32 = sum.load(atomic::Ordering::Relaxed);
         tile_odds[idx] = sum as f64 / num_terminal as f64;
     }
-    println!("{}", num_terminal);
-    println!("{}", total_tile_landings);
     (CamelOdds{odds: position_odds}, TileOdds{odds: tile_odds})
 }
