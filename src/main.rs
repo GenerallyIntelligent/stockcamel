@@ -1,5 +1,6 @@
 use std::collections::LinkedList;
 use std::fmt;
+use std::sync::atomic;
 use std::thread;
 use std::sync::{Arc, Mutex, RwLock};
 use rayon::prelude::*;
@@ -76,10 +77,11 @@ impl Board {
         }
     }
     
-    fn update(&self, roll: Roll) -> Board {
+    fn update(&self, roll: Roll) -> (Board, usize) {
         let mut new_board = self.clone();
         let (current_tile, current_position) = self.get_location(roll.camel);
-        let mut target_tile = usize::min(current_tile + roll.spaces as usize, 16);
+        let original_target_tile = usize::min(current_tile + roll.spaces as usize, 16);
+        let mut target_tile = original_target_tile;
 
         if target_tile >= 16 || !self.desert[target_tile] {
             if !(target_tile >= 16) && self.oasis[target_tile] {
@@ -120,7 +122,7 @@ impl Board {
             new_board.rolls = [false; NUM_CAMELS];
         }
         new_board.rolls[roll.camel as usize - 1] = true;
-        return new_board
+        return (new_board, original_target_tile);
     }
 
     fn is_terminal(&self) -> bool {
@@ -185,37 +187,42 @@ impl Board {
     }
 
     fn solve_game(&self, depth: u8, workers: u8) -> CamelOdds {
+        let depth = depth - 1;
         let position_accumulator = Arc::new(RwLock::new([[0; NUM_CAMELS]; NUM_CAMELS]));
 
         let stack = Arc::new(Mutex::new(Vec::new()));
         {
-            stack.lock().unwrap().push((0, *self));
+            for roll in self.potential_moves() {
+                let (board, _) = self.update(roll);
+                stack.lock().unwrap().push((0, board));
+            }
         }
 
         let mut worker_handles = Vec::new();
-        for _ in 0..workers {
+        for worker_id in 0..workers {
             let stack = Arc::clone(&stack);
             let position_accumulator = Arc::clone(&position_accumulator);
             let handle = thread::spawn(move || {
-                //When the stack is low, we can end up losing workers
-                let mutex_guard = stack.lock().unwrap().pop();
-                let popped_value = mutex_guard.clone();
-                drop(mutex_guard);
-                match popped_value {
-                    Some((current_depth, current_node)) => {
-                        for roll in current_node.potential_moves() {
-                            let next_node = current_node.update(roll);
-                            if !next_node.is_terminal() && current_depth < depth {
-                                stack.lock().unwrap().push((current_depth + 1, next_node));
-                            } else {
-                                let positions = next_node.camel_order();
-                                for (position, camel_num) in positions.iter().enumerate() {
-                                    position_accumulator.write().unwrap()[*camel_num as usize - 1][position] += 1;
+                loop {
+                    let mutex_guard = stack.lock().unwrap().pop();
+                    let popped_value = mutex_guard.clone();
+                    drop(mutex_guard);
+                    match popped_value {
+                        Some((current_depth, current_node)) => {
+                            for roll in current_node.potential_moves() {
+                                let (next_node, _) = current_node.update(roll);
+                                if !next_node.is_terminal() && current_depth < depth {
+                                    stack.lock().unwrap().push((current_depth + 1, next_node));
+                                } else {
+                                    let positions = next_node.camel_order();
+                                    for (position, camel_num) in positions.iter().enumerate() {
+                                        position_accumulator.write().unwrap()[*camel_num as usize - 1][position] += 1;
+                                    }
                                 }
                             }
-                        }
-                    },
-                    None => return,
+                        },
+                        None => break,
+                    }
                 }
             });
             worker_handles.push(handle);
@@ -239,29 +246,80 @@ impl Board {
         CamelOdds {odds: position_odds}
     }
 
-    fn solve_round(&self) -> (CamelOdds, TileOdds) {
-        let mut position_accumulator: [[u16; NUM_CAMELS]; NUM_CAMELS] = [[0; NUM_CAMELS]; NUM_CAMELS];
-        let mut tile_landings_accumulator: [u16; BOARD_SIZE] = [0; BOARD_SIZE];
+    fn solve_round(&self, workers: u8) -> (CamelOdds, TileOdds) {
+        let position_accumulator = Arc::new(RwLock::new([[0; NUM_CAMELS]; NUM_CAMELS]));
+        let tile_landings_accumulator = Arc::new([
+            atomic::AtomicU32::new(0),
+            atomic::AtomicU32::new(0),
+            atomic::AtomicU32::new(0),
+            atomic::AtomicU32::new(0),
+            atomic::AtomicU32::new(0),
+            atomic::AtomicU32::new(0),
+            atomic::AtomicU32::new(0),
+            atomic::AtomicU32::new(0),
+            atomic::AtomicU32::new(0),
+            atomic::AtomicU32::new(0),
+            atomic::AtomicU32::new(0),
+            atomic::AtomicU32::new(0),
+            atomic::AtomicU32::new(0),
+            atomic::AtomicU32::new(0),
+            atomic::AtomicU32::new(0),
+            atomic::AtomicU32::new(0)
+        ]);
+        // let tile_landings_accumulator = Arc::new(RwLock::new([0; BOARD_SIZE]));
 
-        let mut stack: LinkedList<Board> = LinkedList::new();
-        stack.push_back(*self);
-
-        while let Some(current_node) = stack.pop_front() {
-            for roll in current_node.potential_moves() {
-                let next_node = current_node.update(roll);
-                if next_node.all_rolled() || next_node.is_terminal() {
-                    let positions = next_node.camel_order();
-                    for (position, camel_num) in positions.iter().enumerate() {
-                        position_accumulator[*camel_num as usize - 1][position] += 1;
-                    }
-                } else {
-                    let (tile, _) = self.get_location(roll.camel);
-                    let landed_tile = tile + roll.spaces as usize;
-                    tile_landings_accumulator[landed_tile] += 1;
-                    stack.push_front(next_node);
-                }
+        let stack = Arc::new(Mutex::new(Vec::new()));
+        {
+            for roll in self.potential_moves() {
+                let (board, landing_position) = self.update(roll);
+                let mut tile_landings: [u16; BOARD_SIZE] = [0; BOARD_SIZE];
+                tile_landings[landing_position] += 1;
+                stack.lock().unwrap().push((tile_landings, board));
             }
         }
+
+        let mut worker_handles = Vec::new();
+        for worker_id in 0..workers {
+            let stack = Arc::clone(&stack);
+            let position_accumulator = Arc::clone(&position_accumulator);
+            let tile_landings_accumulator = Arc::clone(&tile_landings_accumulator);
+            let handle = thread::spawn(move || {
+                loop {
+                    let mutex_guard = stack.lock().unwrap().pop();
+                    let popped_value = mutex_guard.clone();
+                    drop(mutex_guard);
+                    match popped_value {
+                        Some((tile_landings, current_node)) => {
+                            for roll in current_node.potential_moves() {
+                                let (next_node, landing_position) = current_node.update(roll);
+                                let mut next_tile_landings = tile_landings.clone();
+                                next_tile_landings[landing_position] += 1;
+                                if next_node.all_rolled() || next_node.is_terminal() {
+                                    let positions = next_node.camel_order();
+                                    for (position, camel_num) in positions.iter().enumerate() {
+                                        position_accumulator.write().unwrap()[*camel_num as usize - 1][position] += 1;
+                                    }
+                                    for (idx, value) in next_tile_landings.iter().enumerate() {
+                                        tile_landings_accumulator[idx].fetch_add(*value as u32, atomic::Ordering::Relaxed);
+                                    }
+                                } else {
+                                    stack.lock().unwrap().push((next_tile_landings, next_node));
+                                }
+                            }
+                        },
+                        None => break,
+                    }
+                }
+            });
+            worker_handles.push(handle);
+        }
+
+        for handle in worker_handles {
+            handle.join().unwrap();
+        }
+
+        let position_accumulator = position_accumulator.read().unwrap();
+
         let mut num_terminal = 0;
         for position_num in position_accumulator[0] {
             num_terminal += position_num;
@@ -273,12 +331,14 @@ impl Board {
             }
         }
         let mut total_tile_landings = 0;
-        for num_landings in tile_landings_accumulator {
+        for num_landings in tile_landings_accumulator.iter() {
+            let num_landings: u32 = num_landings.load(atomic::Ordering::Relaxed);
             total_tile_landings += num_landings;
         }
         let mut tile_odds = [0.0; BOARD_SIZE];
         for (idx, sum) in tile_landings_accumulator.iter().enumerate() {
-            tile_odds[idx] = *sum as f64 / total_tile_landings as f64;
+            let sum: u32 = sum.load(atomic::Ordering::Relaxed);
+            tile_odds[idx] = sum as f64 / num_terminal as f64;
         }
         println!("{}", num_terminal);
         println!("{}", total_tile_landings);
@@ -330,11 +390,13 @@ fn main() {
     }
     let rolls = [false; 5];
     let oasis = [false; 16];
-    let desert = [false; 16];
+    let mut desert = [false; 16];
+    desert[3] = true;
     let board = Board::new(positions, rolls, oasis, desert);
-    let (pos, tiles) = board.solve_round();
+    let (pos, tiles) = board.solve_round(8);
     println!("{}", pos);
+    println!("{}", tiles);
     // println!("{}", board);
-    let pos = board.solve_game(4, 4);
+    let pos = board.solve_game(4, 8);
     println!("{}", pos);
 }
