@@ -3,7 +3,7 @@ use std::ops::Index;
 use crate::constants;
 
 pub struct PositionAccumulator {
-    positions: [[atomic::AtomicU32; constants::NUM_CAMELS]; constants::NUM_CAMELS],
+    pub positions: [[atomic::AtomicU32; constants::NUM_CAMELS]; constants::NUM_CAMELS],
 }
 
 impl PositionAccumulator {
@@ -29,7 +29,7 @@ impl Index<usize> for PositionAccumulator
 }
 
 pub struct TileAccumulator {
-    tiles: [atomic::AtomicU32; constants::BOARD_SIZE],
+    pub tiles: [atomic::AtomicU32; constants::BOARD_SIZE],
 }
 
 impl TileAccumulator {

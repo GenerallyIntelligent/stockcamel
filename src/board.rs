@@ -13,7 +13,7 @@ pub struct Roll {
 }
 
 #[derive(Copy, Clone)]
-struct Board {
+pub struct Board {
     positions: [[u8; constants::NUM_CAMELS]; constants::BOARD_SIZE + 1],
     rolls: [bool; constants::NUM_CAMELS],
     oasis: [bool; constants::BOARD_SIZE],
@@ -21,7 +21,7 @@ struct Board {
 }
 
 impl Board {
-    fn new(positions: [[u8; constants::NUM_CAMELS]; constants::BOARD_SIZE + 1], rolls: [bool; constants::NUM_CAMELS], oasis: [bool; constants::BOARD_SIZE], desert: [bool; constants::BOARD_SIZE]) -> Self {
+    pub fn new(positions: [[u8; constants::NUM_CAMELS]; constants::BOARD_SIZE + 1], rolls: [bool; constants::NUM_CAMELS], oasis: [bool; constants::BOARD_SIZE], desert: [bool; constants::BOARD_SIZE]) -> Self {
         Board {
             positions: positions,
             rolls: rolls,
@@ -30,9 +30,9 @@ impl Board {
         }
     }
     
-    fn update(&self, roll: Roll) -> (Board, usize) {
+    pub fn update(&self, roll: Roll) -> (Board, usize) {
         let mut new_board = self.clone();
-        let (current_tile, current_position) = self.get_location(roll.camel);
+        let (current_tile, current_position) = self.find_camel(roll.camel);
         let original_target_tile = usize::min(current_tile + roll.spaces as usize, 16);
         let mut target_tile = original_target_tile;
 
@@ -78,7 +78,7 @@ impl Board {
         return (new_board, original_target_tile);
     }
 
-    fn is_terminal(&self) -> bool {
+    pub fn is_terminal(&self) -> bool {
         for camel in self.positions[constants::BOARD_SIZE] {
             if camel > 0 {
                 return true
@@ -87,7 +87,7 @@ impl Board {
         return false
     }
 
-    fn get_location(&self, camel: u8) -> (usize, usize) {
+    pub fn find_camel(&self, camel: u8) -> (usize, usize) {
         for (tile, stack) in self.positions.iter().enumerate() {
             for (position, candidate_camel) in stack.iter().enumerate() {
                 if camel == *candidate_camel {
@@ -98,7 +98,7 @@ impl Board {
         panic!("Tried to find a camel which does not exist!");
     }
 
-    fn camel_order(&self) -> [u8; constants::NUM_CAMELS] {
+    pub fn camel_order(&self) -> [u8; constants::NUM_CAMELS] {
         let mut camel_order = [0; constants::NUM_CAMELS];
         let mut idx = 5;
         for tile in self.positions {
@@ -112,7 +112,7 @@ impl Board {
         return camel_order
     }
 
-    fn all_rolled(&self) -> bool {
+    pub fn all_rolled(&self) -> bool {
         for has_rolled in self.rolls {
             if !has_rolled {
                 return false
@@ -121,7 +121,7 @@ impl Board {
         return true
     }
 
-    fn potential_moves(&self) -> Vec<Roll> {
+    pub fn potential_moves(&self) -> Vec<Roll> {
         let mut potential_moves = Vec::new();
         let camels_all_rolled = self.all_rolled();
         for (camel_num, has_rolled) in self.rolls.iter().enumerate() {
@@ -139,7 +139,7 @@ impl Board {
         return potential_moves
     }
 
-    fn solve_game(&self, depth: u8, workers: u8) -> results::CamelOdds {
+    pub fn solve_game(&self, depth: u8, workers: u8) -> results::CamelOdds {
         let depth = depth - 1;
         let position_accumulator = Arc::new(RwLock::new([[0; constants::NUM_CAMELS]; constants::NUM_CAMELS]));
 
@@ -199,7 +199,7 @@ impl Board {
         results::CamelOdds {odds: position_odds}
     }
 
-    fn solve_round(&self, workers: u8) -> (results::CamelOdds, results::TileOdds) {
+    pub fn solve_round(&self, workers: u8) -> (results::CamelOdds, results::TileOdds) {
         let position_accumulator = Arc::new(RwLock::new([[0; constants::NUM_CAMELS]; constants::NUM_CAMELS]));
         let tile_landings_accumulator = Arc::new(TileAccumulator::new());
 
@@ -266,18 +266,18 @@ impl Board {
             }
         }
         let mut total_tile_landings = 0;
-        for num_landings in tile_landings_accumulator.iter() {
+        for num_landings in tile_landings_accumulator.tiles.iter() {
             let num_landings: u32 = num_landings.load(atomic::Ordering::Relaxed);
             total_tile_landings += num_landings;
         }
-        let mut tile_odds = [0.0; BOARD_SIZE];
-        for (idx, sum) in tile_landings_accumulator.iter().enumerate() {
+        let mut tile_odds = [0.0; constants::BOARD_SIZE];
+        for (idx, sum) in tile_landings_accumulator.tiles.iter().enumerate() {
             let sum: u32 = sum.load(atomic::Ordering::Relaxed);
             tile_odds[idx] = sum as f64 / num_terminal as f64;
         }
         println!("{}", num_terminal);
         println!("{}", total_tile_landings);
-        (CamelOdds{odds: position_odds}, TileOdds{odds: tile_odds})
+        (results::CamelOdds{odds: position_odds}, results::TileOdds{odds: tile_odds})
     }
 }
 

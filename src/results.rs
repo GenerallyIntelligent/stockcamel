@@ -3,12 +3,12 @@ use crate::constants;
 
 #[derive(Copy, Clone)]
 pub struct CamelOdds {
-    odds: [[f64; constants::NUM_CAMELS]; constants::NUM_CAMELS], //Odds of a camel getting a position, indexed by camel then position
+    pub odds: [[f64; constants::NUM_CAMELS]; constants::NUM_CAMELS], //Odds of a camel getting a position, indexed by camel then position
 }
 
 #[derive(Copy, Clone)]
 pub struct TileOdds {
-    odds: [f64; constants::BOARD_SIZE],
+    pub odds: [f64; constants::BOARD_SIZE],
 }
 
 impl fmt::Display for CamelOdds {
