@@ -1,1 +1,5 @@
 /target
+
+# Perfomance testing
+flamegraph.svg
+perf.*

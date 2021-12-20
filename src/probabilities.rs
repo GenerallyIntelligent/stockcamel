@@ -21,7 +21,7 @@ pub struct TileOdds {
 impl fmt::Display for CamelOdds {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{: <5}", "Camel")?;
-        for i in 1..self.odds.len() {
+        for i in 1..self.odds.len() + 1 {
             write!(f, " | Pos {: <1}", i)?;
         }
         write!(f, "\n")?;
@@ -53,8 +53,8 @@ impl fmt::Display for TileOdds {
 }
 
 pub fn solve_game_from(board: board::Board, depth: u8, workers: u8) -> CamelOdds {
-    let depth = depth - 1;
-    let position_accumulator = Arc::new(RwLock::new([[0; constants::NUM_CAMELS]; constants::NUM_CAMELS]));
+    let depth = depth - 2;
+    let position_accumulator = Arc::new(PositionAccumulator::new());
 
     let stack = Arc::new(Mutex::new(Vec::new()));
     {
@@ -72,7 +72,7 @@ pub fn solve_game_from(board: board::Board, depth: u8, workers: u8) -> CamelOdds
             loop {
                 let mutex_guard = stack.lock().unwrap().pop();
                 let popped_value = mutex_guard.clone();
-                drop(mutex_guard);
+                drop(mutex_guard); //Does this actually release it for other threads to use?
                 match popped_value {
                     Some((current_depth, current_node)) => {
                         for roll in current_node.potential_moves() {
@@ -82,7 +82,7 @@ pub fn solve_game_from(board: board::Board, depth: u8, workers: u8) -> CamelOdds
                             } else {
                                 let positions = next_node.camel_order();
                                 for (position, camel_num) in positions.iter().enumerate() {
-                                    position_accumulator.write().unwrap()[*camel_num as usize - 1][position] += 1;
+                                    position_accumulator[*camel_num as usize - 1][position].fetch_add(1, atomic::Ordering::Relaxed);
                                 }
                             }
                         }
@@ -98,22 +98,22 @@ pub fn solve_game_from(board: board::Board, depth: u8, workers: u8) -> CamelOdds
         handle.join().unwrap();
     }
 
-    let position_accumulator = position_accumulator.read().unwrap();
     let mut num_terminal = 0;
-    for position_num in position_accumulator[0] {
-        num_terminal += position_num;
+    for position_num in &position_accumulator[0] {
+        num_terminal += position_num.load(atomic::Ordering::Relaxed);
     }
     let mut position_odds = [[0.0; constants::NUM_CAMELS]; constants::NUM_CAMELS];
-    for (x, vector) in position_accumulator.iter().enumerate() {
+    for (x, vector) in position_accumulator.positions.iter().enumerate() {
         for (y, sum) in vector.iter().enumerate() {
-            position_odds[x][y] = *sum as f64 / num_terminal as f64;
+            let sum = sum.load(atomic::Ordering::Relaxed);
+            position_odds[x][y] = sum as f64 / num_terminal as f64;
         }
     }
     CamelOdds {odds: position_odds}
 }
 
 pub fn solve_round_from(board: board::Board, workers: u8) -> (CamelOdds, TileOdds) {
-    let position_accumulator = Arc::new(RwLock::new([[0; constants::NUM_CAMELS]; constants::NUM_CAMELS]));
+    let position_accumulator = Arc::new(PositionAccumulator::new());
     let tile_landings_accumulator = Arc::new(TileAccumulator::new());
 
     let stack = Arc::new(Mutex::new(Vec::new()));
@@ -145,7 +145,7 @@ pub fn solve_round_from(board: board::Board, workers: u8) -> (CamelOdds, TileOdd
                             if next_node.all_rolled() || next_node.is_terminal() {
                                 let positions = next_node.camel_order();
                                 for (position, camel_num) in positions.iter().enumerate() {
-                                    position_accumulator.write().unwrap()[*camel_num as usize - 1][position] += 1;
+                                    position_accumulator[*camel_num as usize - 1][position].fetch_add(1, atomic::Ordering::Relaxed);
                                 }
                                 for (idx, value) in next_tile_landings.iter().enumerate() {
                                     tile_landings_accumulator[idx].fetch_add(*value as u32, atomic::Ordering::Relaxed);
@@ -166,16 +166,15 @@ pub fn solve_round_from(board: board::Board, workers: u8) -> (CamelOdds, TileOdd
         handle.join().unwrap();
     }
 
-    let position_accumulator = position_accumulator.read().unwrap();
-
     let mut num_terminal = 0;
-    for position_num in position_accumulator[0] {
-        num_terminal += position_num;
+    for position_num in &position_accumulator[0] {
+        num_terminal += position_num.load(atomic::Ordering::Relaxed);
     }
     let mut position_odds = [[0.0; constants::NUM_CAMELS]; constants::NUM_CAMELS];
-    for (x, vector) in position_accumulator.iter().enumerate() {
+    for (x, vector) in position_accumulator.positions.iter().enumerate() {
         for (y, sum) in vector.iter().enumerate() {
-            position_odds[x][y] = *sum as f64 / num_terminal as f64;
+            let sum = sum.load(atomic::Ordering::Relaxed);
+            position_odds[x][y] = sum as f64 / num_terminal as f64;
         }
     }
     let mut tile_odds = [0.0; constants::BOARD_SIZE];

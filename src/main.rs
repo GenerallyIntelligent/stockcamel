@@ -15,8 +15,6 @@ fn main() {
     let board = board::Board::new(positions, rolls, oasis, desert);
     let (pos, tiles) = probabilities::solve_round_from(board, 8);
     println!("{}", pos);
-    println!("{}", tiles);
-    // println!("{}", board);
-    let pos = probabilities::solve_game_from(board, 4, 8);
+    let pos = probabilities::solve_game_from(board, 5, 8);
     println!("{}", pos);
 }
