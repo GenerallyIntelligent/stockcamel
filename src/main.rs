@@ -13,7 +13,7 @@ fn main() {
     let mut desert = [false; 16];
     desert[3] = true;
     let board = board::Board::new(positions, rolls, oasis, desert);
-    let (pos, tiles) = probabilities::solve_round_from(board, 8);
+    let (pos, _) = probabilities::solve_round_from(board, 8);
     println!("{}", pos);
     let pos = probabilities::solve_game_from(board, 5, 8);
     println!("{}", pos);

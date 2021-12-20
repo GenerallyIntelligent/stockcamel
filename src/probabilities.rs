@@ -2,7 +2,7 @@
 use std::fmt;
 use std::sync::atomic;
 use std::thread;
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, Mutex};
 
 use crate::constants;
 use crate::board;
