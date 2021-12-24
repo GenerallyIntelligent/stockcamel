@@ -2,7 +2,7 @@
 use std::fmt;
 use std::sync::atomic;
 use std::thread;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 
 use crate::constants;
 use crate::board;
@@ -56,29 +56,31 @@ pub fn solve_game_from(board: board::Board, depth: u8, workers: u8) -> CamelOdds
     let depth = depth - 2;
     let position_accumulator = Arc::new(PositionAccumulator::new());
 
-    let stack = Arc::new(Mutex::new(Vec::new()));
+    // May want to change to the parking lot mutex
+    let shared_stack: Arc<RwLock<Vec<(u8, board::Board)>>> = Arc::new(RwLock::new(Vec::new()));
     {
         for roll in board.potential_moves() {
             let (board, _) = board.update(roll);
-            stack.lock().unwrap().push((0, board));
+            shared_stack.write().unwrap().push((0, board));
         }
     }
 
     let mut worker_handles = Vec::new();
-    for _ in 0..workers {
-        let stack = Arc::clone(&stack);
+    for worker_id in 0..workers {
+        let shared_stack = Arc::clone(&shared_stack);
         let position_accumulator = Arc::clone(&position_accumulator);
         let handle = thread::spawn(move || {
+            // println!("Starting worker {}", worker_id);
+            let mut stack: Vec<(u8, board::Board)> = Vec::new();
             loop {
-                let mutex_guard = stack.lock().unwrap().pop();
-                let popped_value = mutex_guard.clone();
-                drop(mutex_guard); //Does this actually release it for other threads to use?
-                match popped_value {
+                let stack_result = stack.pop();
+                match stack_result {
                     Some((current_depth, current_node)) => {
+                        // println!("Found something on local stack");
                         for roll in current_node.potential_moves() {
                             let (next_node, _) = current_node.update(roll);
                             if !next_node.is_terminal() && current_depth < depth {
-                                stack.lock().unwrap().push((current_depth + 1, next_node));
+                                stack.push((current_depth + 1, next_node));
                             } else {
                                 let positions = next_node.camel_order();
                                 for (position, camel_num) in positions.iter().enumerate() {
@@ -87,7 +89,72 @@ pub fn solve_game_from(board: board::Board, depth: u8, workers: u8) -> CamelOdds
                             }
                         }
                     },
-                    None => break,
+                    None => {
+                        // println!("Found nothing on local stack");
+                        let mutex_out = shared_stack.read().unwrap();
+                        let len = mutex_out.len();
+                        drop(mutex_out);
+                        match len {
+                            0 => {
+                                // println!("Found nothing on shared stack");
+                                // println!("Worker {} joining", worker_id);
+                                break
+                            },
+                            1 => {
+                                // println!("Found one on shared stack");
+                                let current_depth;
+                                let current_node;
+                                let mutex_out = shared_stack.write().unwrap().pop();
+                                let shared_stack_result = mutex_out.clone();
+                                drop(mutex_out);
+                                match shared_stack_result {
+                                    Some((d, n)) => {
+                                        current_depth = d;
+                                        current_node = n;
+                                    },
+                                    None => continue
+                                }
+                                for roll in current_node.potential_moves() {
+                                    let (next_node, _) = current_node.update(roll);
+                                    if !next_node.is_terminal() && current_depth < depth {
+                                        shared_stack.write().unwrap().push((current_depth + 1, next_node));
+                                    } else {
+                                        let positions = next_node.camel_order();
+                                        for (position, camel_num) in positions.iter().enumerate() {
+                                            position_accumulator[*camel_num as usize - 1][position].fetch_add(1, atomic::Ordering::Relaxed);
+                                        }
+                                    }
+                                }
+                            }
+                            _ => {
+                                // println!("Found many on shared stack");
+                                let current_depth;
+                                let current_node;
+                                match shared_stack.write().unwrap().pop() {
+                                    Some((d, n)) => {
+                                        // println!("Got node from shared stack");
+                                        current_depth = d;
+                                        current_node = n;
+                                    },
+                                    None => {
+                                        // println!("Shared stack is empty");
+                                        continue
+                                    }
+                                }
+                                for roll in current_node.potential_moves() {
+                                    let (next_node, _) = current_node.update(roll);
+                                    if !next_node.is_terminal() && current_depth < depth {
+                                        stack.push((current_depth + 1, next_node));
+                                    } else {
+                                        let positions = next_node.camel_order();
+                                        for (position, camel_num) in positions.iter().enumerate() {
+                                            position_accumulator[*camel_num as usize - 1][position].fetch_add(1, atomic::Ordering::Relaxed);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
         });
