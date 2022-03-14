@@ -112,7 +112,12 @@ fn start_round_worker(
     tile_accumulator: Arc<Mutex<AtomicTileAccumulator>>,
 ) {
     loop {
-        let (next_board, depth) = match round_stack.clone().lock().unwrap().pop() {
+        let stack_result;
+        {
+            let mut mutex_lock = round_stack.lock().unwrap();
+            stack_result = mutex_lock.pop();
+        }
+        let (next_board, depth) = match stack_result {
             Some((board, depth)) => (board, depth),
             None => {
                 start_game_worker(game_stack, game_positions_accumulator);
@@ -124,7 +129,6 @@ fn start_round_worker(
             depth,
             round_stack.clone(),
             game_stack.clone(),
-            game_positions_accumulator.clone(),
             round_positions_accumulator.clone(),
             tile_accumulator.clone(),
         );
@@ -136,7 +140,12 @@ fn start_game_worker(
     game_positions_accumulator: Arc<Mutex<AtomicPositionAccumulator>>,
 ) {
     loop {
-        let (next_board, depth) = match game_stack.clone().lock().unwrap().pop() {
+        let stack_result;
+        {
+            let mut mutex_lock = game_stack.lock().unwrap();
+            stack_result = mutex_lock.pop();
+        }
+        let (next_board, depth) = match stack_result {
             Some((board, depth)) => (board, depth),
             None => return,
         };
@@ -154,7 +163,6 @@ fn update_round_and_game_state(
     depth: u8,
     round_stack: Arc<Mutex<Vec<(Board, u8)>>>,
     game_stack: Arc<Mutex<Vec<(Board, u8)>>>,
-    game_positions_accumulator: Arc<Mutex<AtomicPositionAccumulator>>,
     round_positions_accumulator: Arc<Mutex<AtomicPositionAccumulator>>,
     tile_accumulator: Arc<Mutex<AtomicTileAccumulator>>,
 ) {

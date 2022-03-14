@@ -38,7 +38,7 @@ fn main() {
 
     let board = create_board();
     let (game_position_probabilies, round_position_probabilities, tile_probabilities) =
-        probabilities::solve_probabilities(board, 5, 10);
+        probabilities::solve_probabilities(board, 8, 10);
     println!(
         "{}\n{}\n{}\n",
         game_position_probabilies, round_position_probabilities, tile_probabilities
