@@ -16,58 +16,28 @@ fn create_board() -> board::Board {
     return board;
 }
 
-// fn time_comparison(n: u32) {
-//     let board = create_board();
+fn time_probabilities(n: u32) {
+    let board = create_board();
 
-//     let start = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
-//     for _ in 1..n {
-//         let _ = probabilities::solve_game_from(board, 5, 8);
-//     }
-//     let end = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
-//     println!(
-//         "Test 1: {:.4} per test",
-//         (end.as_millis() - start.as_millis()) / n as u128
-//     );
-
-//     let start = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
-//     for _ in 1..n {
-//         let _ = probabilities::solve_round_from(board, 8);
-//     }
-//     let end = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
-//     println!(
-//         "Test 2: {:.4} per test",
-//         (end.as_millis() - start.as_millis()) / n as u128
-//     );
-
-//     println!("Done");
-// }
-
-// fn run_game(n: u32) {
-//     let board = create_board();
-
-//     for _ in 1..n {
-//         let _ = probabilities::solve_game_from(board, 5, 8);
-//     }
-
-//     println!("Done")
-// }
-
-// fn run_round(n: u32) {
-//     let board = create_board();
-
-//     for _ in 1..n {
-//         let _ = probabilities::solve_round_from(board, 8);
-//     }
-
-//     println!("Done")
-// }
+    let start = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
+    for _ in 1..n {
+        let _ = probabilities::solve_probabilities(board, 5);
+    }
+    let end = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
+    println!(
+        "{:.4} per solve",
+        (end.as_millis() - start.as_millis()) / n as u128
+    );
+}
 
 fn main() {
     let board = create_board();
     let (game_position_probabilies, round_position_probabilities, tile_probabilities) =
-        probabilities::calculate::solve_probabilities(board, 5);
+        probabilities::solve_probabilities(board, 5);
     println!(
         "{}\n{}\n{}\n",
         game_position_probabilies, round_position_probabilities, tile_probabilities
     );
+
+    time_probabilities(10);
 }
