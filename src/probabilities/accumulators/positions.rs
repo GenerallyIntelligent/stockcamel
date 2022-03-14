@@ -1,6 +1,6 @@
 use crate::{board, constants};
 use crossbeam::utils::CachePadded;
-use std::ops::{AddAssign, Deref, DerefMut};
+use std::ops::{Add, AddAssign, Deref, DerefMut};
 use std::sync::atomic;
 
 pub struct PositionAccumulator([[u32; constants::NUM_CAMELS]; constants::NUM_CAMELS]);
@@ -29,6 +29,19 @@ impl Deref for PositionAccumulator {
 impl DerefMut for PositionAccumulator {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
+    }
+}
+
+impl Add for PositionAccumulator {
+    type Output = PositionAccumulator;
+    fn add(self, rhs: PositionAccumulator) -> Self::Output {
+        let mut result = PositionAccumulator::new();
+        for (x, (row_one, row_two)) in self.iter().zip(rhs.iter()).enumerate() {
+            for (y, (val_one, val_two)) in row_one.iter().zip(row_two.iter()).enumerate() {
+                result[x][y] = val_one + val_two;
+            }
+        }
+        result
     }
 }
 

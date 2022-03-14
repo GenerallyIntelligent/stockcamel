@@ -1,11 +1,12 @@
 use crate::board;
 use crate::board::Board;
 use crate::constants;
-use crate::probabilities::accumulators::{AtomicPositionAccumulator, AtomicTileAccumulator};
+use crate::probabilities::accumulators::{
+    AtomicPositionAccumulator, AtomicTileAccumulator, PositionAccumulator, TileAccumulator,
+};
 use crate::probabilities::odds::{CamelOdds, TileOdds};
-use parking_lot::{Mutex, RwLock};
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::{panic, thread};
 
 pub fn solve_probabilities(
@@ -19,7 +20,7 @@ pub fn solve_probabilities(
 
     let round_stack = Arc::new(Mutex::new(Vec::new()));
     {
-        let mut round_stack = round_stack.lock();
+        let mut round_stack = round_stack.lock().unwrap();
         round_stack.push((board, depth));
     }
     let game_stack = Arc::new(Mutex::new(Vec::new()));
@@ -27,7 +28,7 @@ pub fn solve_probabilities(
     seed_stack(round_stack.clone(), num_workers);
 
     let mut worker_handles = Vec::new();
-    for _ in 0..num_workers {
+    for worker_num in 0..num_workers {
         let round_stack = round_stack.clone();
         let game_stack = game_stack.clone();
         let game_positions_accumulator = game_positions_accumulator.clone();
@@ -35,6 +36,7 @@ pub fn solve_probabilities(
         let tile_accumulator = tile_accumulator.clone();
         let handle = thread::spawn(move || {
             start_round_worker(
+                worker_num,
                 round_stack,
                 game_stack,
                 game_positions_accumulator,
@@ -61,15 +63,17 @@ pub fn solve_probabilities(
     // });
 
     {
-        let round_positions_accumulator = round_positions_accumulator.lock().clone();
-        let game_positions_accumulator = game_positions_accumulator.lock().clone();
-        let tile_accumulator = tile_accumulator.lock().clone();
+        let round_positions_accumulator: PositionAccumulator =
+            round_positions_accumulator.lock().unwrap().clone().into();
+        let game_positions_accumulator: PositionAccumulator =
+            game_positions_accumulator.lock().unwrap().clone().into();
+        let tile_accumulator: TileAccumulator = tile_accumulator.lock().unwrap().clone().into();
 
         let rount_terminal_states = round_positions_accumulator.count_terminal();
         let rount_position_odds =
-            CamelOdds::new(&round_positions_accumulator.into(), &rount_terminal_states);
-        let game_position_odds = game_positions_accumulator.into();
-        let tile_odds = TileOdds::new(&tile_accumulator.into(), &rount_terminal_states);
+            CamelOdds::new(&round_positions_accumulator, &rount_terminal_states);
+        let game_position_odds = (game_positions_accumulator + round_positions_accumulator).into();
+        let tile_odds = TileOdds::new(&tile_accumulator, &rount_terminal_states);
         (game_position_odds, rount_position_odds, tile_odds)
     }
 }
@@ -77,7 +81,7 @@ pub fn solve_probabilities(
 fn seed_stack(stack: Arc<Mutex<Vec<(Board, u8)>>>, num_to_seed: u8) {
     let mut num_seeded = 1;
     while num_seeded < num_to_seed {
-        let (board, depth) = match stack.clone().lock().pop() {
+        let (board, depth) = match stack.clone().lock().unwrap().pop() {
             Some((board, depth)) => (board, depth),
             None => panic!(
                 "Failed to seed the stack with at least {} board states!",
@@ -93,13 +97,14 @@ fn seed_stack(stack: Arc<Mutex<Vec<(Board, u8)>>>, num_to_seed: u8) {
         }
 
         {
-            let mut stack = stack.lock();
+            let mut stack = stack.lock().unwrap();
             stack.append(&mut new_boards);
         }
     }
 }
 
 fn start_round_worker(
+    worker_num: u8,
     round_stack: Arc<Mutex<Vec<(Board, u8)>>>,
     game_stack: Arc<Mutex<Vec<(Board, u8)>>>,
     game_positions_accumulator: Arc<Mutex<AtomicPositionAccumulator>>,
@@ -107,7 +112,7 @@ fn start_round_worker(
     tile_accumulator: Arc<Mutex<AtomicTileAccumulator>>,
 ) {
     loop {
-        let (next_board, depth) = match round_stack.clone().lock().pop() {
+        let (next_board, depth) = match round_stack.clone().lock().unwrap().pop() {
             Some((board, depth)) => (board, depth),
             None => {
                 start_game_worker(game_stack, game_positions_accumulator);
@@ -122,7 +127,7 @@ fn start_round_worker(
             game_positions_accumulator.clone(),
             round_positions_accumulator.clone(),
             tile_accumulator.clone(),
-        )
+        );
     }
 }
 
@@ -131,7 +136,7 @@ fn start_game_worker(
     game_positions_accumulator: Arc<Mutex<AtomicPositionAccumulator>>,
 ) {
     loop {
-        let (next_board, depth) = match game_stack.clone().lock().pop() {
+        let (next_board, depth) = match game_stack.clone().lock().unwrap().pop() {
             Some((board, depth)) => (board, depth),
             None => return,
         };
@@ -154,21 +159,17 @@ fn update_round_and_game_state(
     tile_accumulator: Arc<Mutex<AtomicTileAccumulator>>,
 ) {
     if depth == 0 {
-        let mut round_lock = round_positions_accumulator.lock();
+        let mut round_lock = round_positions_accumulator.lock().unwrap();
         *round_lock += terminal_node_heuristic(board);
-        let mut game_lock = game_positions_accumulator.lock();
-        *game_lock += terminal_node_heuristic(board);
         return;
     } else if board.is_terminal() {
-        let mut round_lock = round_positions_accumulator.lock();
+        let mut round_lock = round_positions_accumulator.lock().unwrap();
         *round_lock += board.camel_order();
-        let mut game_lock = game_positions_accumulator.lock();
-        *game_lock += board.camel_order();
         return;
     }
 
     if board.all_rolled() {
-        let mut game_stack = game_stack.lock();
+        let mut game_stack = game_stack.lock().unwrap();
         game_stack.push((board, depth));
         return;
     }
@@ -180,7 +181,7 @@ fn update_round_and_game_state(
     }
 
     {
-        let mut round_stack = round_stack.lock();
+        let mut round_stack = round_stack.lock().unwrap();
         round_stack.append(&mut new_boards);
     }
 }
@@ -192,11 +193,11 @@ fn update_game_state(
     game_positions_accumulator: Arc<Mutex<AtomicPositionAccumulator>>,
 ) {
     if depth == 0 {
-        let mut round_lock = game_positions_accumulator.lock();
+        let mut round_lock = game_positions_accumulator.lock().unwrap();
         *round_lock += terminal_node_heuristic(board);
         return;
     } else if board.is_terminal() {
-        let mut round_lock = game_positions_accumulator.lock();
+        let mut round_lock = game_positions_accumulator.lock().unwrap();
         *round_lock += board.camel_order();
         return;
     }
@@ -208,7 +209,7 @@ fn update_game_state(
     }
 
     {
-        let mut game_stack = game_stack.lock();
+        let mut game_stack = game_stack.lock().unwrap();
         game_stack.append(&mut new_boards);
     }
 }
