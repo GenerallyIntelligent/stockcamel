@@ -1,5 +1,18 @@
-use std::fmt;
 use crate::constants;
+use std::fmt;
+
+pub type Positions = [[u8; constants::NUM_CAMELS]; constants::BOARD_SIZE + 1];
+pub type Rolls = [bool; constants::NUM_CAMELS];
+pub type Terrain = [bool; constants::BOARD_SIZE];
+pub type CamelOrder = [u8; constants::NUM_CAMELS];
+
+#[derive(Copy, Clone)]
+pub struct Board {
+    positions: Positions,
+    rolls: Rolls,
+    oasis: Terrain,
+    desert: Terrain,
+}
 
 #[derive(Copy, Clone)]
 pub struct Roll {
@@ -7,29 +20,26 @@ pub struct Roll {
     spaces: u8,
 }
 
-#[derive(Copy, Clone)]
-pub struct Board {
-    positions: [[u8; constants::NUM_CAMELS]; constants::BOARD_SIZE + 1],
-    rolls: [bool; constants::NUM_CAMELS],
-    oasis: [bool; constants::BOARD_SIZE],
-    desert: [bool; constants::BOARD_SIZE],
-}
-
 impl Board {
-    pub fn new(positions: [[u8; constants::NUM_CAMELS]; constants::BOARD_SIZE + 1], rolls: [bool; constants::NUM_CAMELS], oasis: [bool; constants::BOARD_SIZE], desert: [bool; constants::BOARD_SIZE]) -> Self {
+    pub fn new(positions: Positions, rolls: Rolls, oasis: Terrain, desert: Terrain) -> Self {
         Board {
             positions: positions,
             rolls: rolls,
             oasis: oasis,
-            desert: desert
+            desert: desert,
         }
     }
-    
-    pub fn update(&self, roll: Roll) -> (Board, usize) {
+
+    pub fn update(&self, roll: &Roll) -> Board {
+        let (new_board, _) = self.update_with_target(roll);
+        new_board
+    }
+
+    pub fn update_with_target(&self, roll: &Roll) -> (Board, usize) {
         let mut new_board = self.clone();
         let (current_tile, current_position) = self.find_camel(roll.camel);
-        let original_target_tile = usize::min(current_tile + roll.spaces as usize, 16);
-        let mut target_tile = original_target_tile;
+        let initial_target_tile = usize::min(current_tile + roll.spaces as usize, 16);
+        let mut target_tile = initial_target_tile;
 
         if target_tile >= 16 || !self.desert[target_tile] {
             if !(target_tile >= 16) && self.oasis[target_tile] {
@@ -38,62 +48,73 @@ impl Board {
             let mut target_position = 0;
             for camel_num in self.positions[target_tile] {
                 if camel_num <= 0 {
-                    break
+                    break;
                 }
                 target_position += 1;
             }
             let moving_stack_height = 5 - usize::max(current_position, target_position);
-            let moving_slice = &self.positions[current_tile][current_position..current_position + moving_stack_height];
-            new_board.positions[target_tile][target_position..target_position + moving_stack_height].clone_from_slice(moving_slice);
-            let static_slice = &self.positions[target_tile][target_position..target_position + moving_stack_height];
-            new_board.positions[current_tile][current_position..current_position + moving_stack_height].clone_from_slice(static_slice);
+            let moving_slice = &self.positions[current_tile]
+                [current_position..current_position + moving_stack_height];
+            new_board.positions[target_tile]
+                [target_position..target_position + moving_stack_height]
+                .clone_from_slice(moving_slice);
+            let static_slice = &self.positions[target_tile]
+                [target_position..target_position + moving_stack_height];
+            new_board.positions[current_tile]
+                [current_position..current_position + moving_stack_height]
+                .clone_from_slice(static_slice);
         } else {
             target_tile -= 1;
             let mut stack_height = 0;
             for camel_num in self.positions[current_tile] {
                 if camel_num <= 0 {
-                    break
+                    break;
                 }
                 stack_height += 1;
             }
             let moving_stack_height = stack_height - current_position;
             let static_slice = &self.positions[target_tile + 1][5 - moving_stack_height..5];
-            new_board.positions[current_tile][current_position..current_position + moving_stack_height].clone_from_slice(static_slice);
+            new_board.positions[current_tile]
+                [current_position..current_position + moving_stack_height]
+                .clone_from_slice(static_slice);
             let preexisting_slice_height = 5 - moving_stack_height;
             let preexisting_stack = new_board.positions[target_tile];
-            new_board.positions[target_tile][moving_stack_height..moving_stack_height + preexisting_slice_height].clone_from_slice(&preexisting_stack[0..preexisting_slice_height]);
-            let moving_slice = &self.positions[current_tile][current_position..current_position + moving_stack_height];
+            new_board.positions[target_tile]
+                [moving_stack_height..moving_stack_height + preexisting_slice_height]
+                .clone_from_slice(&preexisting_stack[0..preexisting_slice_height]);
+            let moving_slice = &self.positions[current_tile]
+                [current_position..current_position + moving_stack_height];
             new_board.positions[target_tile][0..moving_stack_height].clone_from_slice(moving_slice);
         }
-        
+
         if new_board.all_rolled() {
             new_board.rolls = [false; constants::NUM_CAMELS];
         }
         new_board.rolls[roll.camel as usize - 1] = true;
-        return (new_board, original_target_tile);
+        return (new_board, initial_target_tile);
     }
 
     pub fn is_terminal(&self) -> bool {
         for camel in self.positions[constants::BOARD_SIZE] {
             if camel > 0 {
-                return true
+                return true;
             }
         }
-        return false
+        return false;
     }
 
     pub fn find_camel(&self, camel: u8) -> (usize, usize) {
         for (tile, stack) in self.positions.iter().enumerate() {
             for (position, candidate_camel) in stack.iter().enumerate() {
                 if camel == *candidate_camel {
-                    return (tile, position)
+                    return (tile, position);
                 }
             }
         }
         panic!("Tried to find a camel which does not exist!");
     }
 
-    pub fn camel_order(&self) -> [u8; constants::NUM_CAMELS] {
+    pub fn camel_order(&self) -> CamelOrder {
         let mut camel_order = [0; constants::NUM_CAMELS];
         let mut idx = 5;
         for tile in self.positions {
@@ -104,16 +125,26 @@ impl Board {
                 }
             }
         }
-        return camel_order
+        return camel_order;
     }
 
     pub fn all_rolled(&self) -> bool {
         for has_rolled in self.rolls {
             if !has_rolled {
-                return false
+                return false;
             }
         }
-        return true
+        return true;
+    }
+
+    pub fn num_unrolled(&self) -> u8 {
+        let mut num_unrolled = 0;
+        for has_rolled in self.rolls {
+            if !has_rolled {
+                num_unrolled += 1;
+            }
+        }
+        num_unrolled
     }
 
     pub fn potential_moves(&self) -> Vec<Roll> {
@@ -128,10 +159,9 @@ impl Board {
                     };
                     potential_moves.push(roll);
                 }
-                
             }
         }
-        return potential_moves
+        return potential_moves;
     }
 }
 
@@ -152,7 +182,6 @@ impl fmt::Display for Board {
                 } else if self.desert[tile] {
                     write!(f, "[-]")?;
                 } else {
-
                 }
                 write!(f, "\n")?;
             } else {
@@ -166,7 +195,6 @@ impl fmt::Display for Board {
                 }
                 write!(f, "\n")?;
             }
-            
         }
         Ok(())
     }
