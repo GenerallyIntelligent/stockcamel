@@ -21,7 +21,7 @@ fn time_probabilities(n: u32) {
 
     let start = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
     for _ in 1..n {
-        let _ = probabilities::solve_probabilities(board, 5);
+        let _ = probabilities::solve_probabilities(board, 5, 24);
     }
     let end = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
     println!(
@@ -31,9 +31,14 @@ fn time_probabilities(n: u32) {
 }
 
 fn main() {
+    rayon::ThreadPoolBuilder::new()
+        .num_threads(24)
+        .build_global()
+        .unwrap();
+
     let board = create_board();
     let (game_position_probabilies, round_position_probabilities, tile_probabilities) =
-        probabilities::solve_probabilities(board, 5);
+        probabilities::solve_probabilities(board, 5, 10);
     println!(
         "{}\n{}\n{}\n",
         game_position_probabilies, round_position_probabilities, tile_probabilities
