@@ -28,7 +28,7 @@ pub fn solve_probabilities(
     seed_stack(round_stack.clone(), num_workers);
 
     let mut worker_handles = Vec::new();
-    for worker_num in 0..num_workers {
+    for _ in 0..num_workers {
         let round_stack = round_stack.clone();
         let game_stack = game_stack.clone();
         let game_positions_accumulator = game_positions_accumulator.clone();
@@ -36,7 +36,6 @@ pub fn solve_probabilities(
         let tile_accumulator = tile_accumulator.clone();
         let handle = thread::spawn(move || {
             start_round_worker(
-                worker_num,
                 round_stack,
                 game_stack,
                 game_positions_accumulator,
@@ -81,7 +80,12 @@ pub fn solve_probabilities(
 fn seed_stack(stack: Arc<Mutex<Vec<(Board, u8)>>>, num_to_seed: u8) {
     let mut num_seeded = 1;
     while num_seeded < num_to_seed {
-        let (board, depth) = match stack.clone().lock().unwrap().pop() {
+        let stack_result;
+        {
+            let mut mutex_lock = stack.lock().unwrap();
+            stack_result = mutex_lock.pop();
+        }
+        let (board, depth) = match stack_result {
             Some((board, depth)) => (board, depth),
             None => panic!(
                 "Failed to seed the stack with at least {} board states!",
@@ -104,7 +108,6 @@ fn seed_stack(stack: Arc<Mutex<Vec<(Board, u8)>>>, num_to_seed: u8) {
 }
 
 fn start_round_worker(
-    worker_num: u8,
     round_stack: Arc<Mutex<Vec<(Board, u8)>>>,
     game_stack: Arc<Mutex<Vec<(Board, u8)>>>,
     game_positions_accumulator: Arc<Mutex<AtomicPositionAccumulator>>,
