@@ -15,7 +15,7 @@ impl PositionAccumulator {
         for position_num in self[0] {
             num_terminal += position_num;
         }
-        num_terminal
+        return num_terminal;
     }
 }
 
@@ -95,7 +95,7 @@ impl AtomicPositionAccumulator {
         for position_num in &self[0] {
             num_terminal += position_num.load(atomic::Ordering::Relaxed);
         }
-        num_terminal
+        return num_terminal;
     }
 }
 
