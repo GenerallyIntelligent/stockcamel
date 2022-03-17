@@ -31,10 +31,10 @@ fn time_probabilities(n: u32) {
 }
 
 fn main() {
-    rayon::ThreadPoolBuilder::new()
-        .num_threads(24)
-        .build_global()
-        .unwrap();
+    // rayon::ThreadPoolBuilder::new()
+    //     .num_threads(24)
+    //     .build_global()
+    //     .unwrap();
 
     let board = create_board();
     let (game_position_probabilies, round_position_probabilities, tile_probabilities) =
@@ -44,5 +44,5 @@ fn main() {
         game_position_probabilies, round_position_probabilities, tile_probabilities
     );
 
-    time_probabilities(100);
+    time_probabilities(1000);
 }
