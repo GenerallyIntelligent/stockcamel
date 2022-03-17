@@ -5,6 +5,7 @@ use crate::probabilities::accumulators::{
     AtomicPositionAccumulator, AtomicTileAccumulator, PositionAccumulator, TileAccumulator,
 };
 use crate::probabilities::odds::{CamelOdds, TileOdds};
+use crossbeam::queue::ArrayQueue;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use std::sync::{Arc, Mutex};
 use std::{panic, thread};
@@ -18,12 +19,10 @@ pub fn solve_probabilities(
     let game_positions_accumulator = Arc::new(Mutex::new(AtomicPositionAccumulator::new()));
     let tile_accumulator = Arc::new(Mutex::new(AtomicTileAccumulator::new()));
 
-    let round_stack = Arc::new(Mutex::new(Vec::new()));
-    {
-        let mut round_stack = round_stack.lock().unwrap();
-        round_stack.push((board, depth));
-    }
-    let game_stack = Arc::new(Mutex::new(Vec::new()));
+    //TODO: Figure out the smallest we can make these stacks and still not have problems.
+    let round_stack = Arc::new(ArrayQueue::new(19160));
+    let _ = round_stack.push((board, depth));
+    let game_stack = Arc::new(ArrayQueue::new(19160));
 
     seed_stack(round_stack.clone(), num_workers);
 
@@ -77,15 +76,10 @@ pub fn solve_probabilities(
     }
 }
 
-fn seed_stack(stack: Arc<Mutex<Vec<(Board, u8)>>>, num_to_seed: u8) {
+fn seed_stack(stack: Arc<ArrayQueue<(Board, u8)>>, num_to_seed: u8) {
     let mut num_seeded = 1;
     while num_seeded < num_to_seed {
-        let stack_result;
-        {
-            let mut mutex_lock = stack.lock().unwrap();
-            stack_result = mutex_lock.pop();
-        }
-        let (board, depth) = match stack_result {
+        let (board, depth) = match stack.pop() {
             Some((board, depth)) => (board, depth),
             None => panic!(
                 "Failed to seed the stack with at least {} board states!",
@@ -93,34 +87,23 @@ fn seed_stack(stack: Arc<Mutex<Vec<(Board, u8)>>>, num_to_seed: u8) {
             ),
         };
         num_seeded -= 1;
-        let mut new_boards = Vec::new();
         for roll in board.potential_moves() {
             let next_board = board.update(&roll);
-            new_boards.push((next_board, depth - 1));
+            let _ = stack.push((next_board, depth - 1));
             num_seeded += 1;
-        }
-
-        {
-            let mut stack = stack.lock().unwrap();
-            stack.append(&mut new_boards);
         }
     }
 }
 
 fn start_round_worker(
-    round_stack: Arc<Mutex<Vec<(Board, u8)>>>,
-    game_stack: Arc<Mutex<Vec<(Board, u8)>>>,
+    round_stack: Arc<ArrayQueue<(Board, u8)>>,
+    game_stack: Arc<ArrayQueue<(Board, u8)>>,
     game_positions_accumulator: Arc<Mutex<AtomicPositionAccumulator>>,
     round_positions_accumulator: Arc<Mutex<AtomicPositionAccumulator>>,
     tile_accumulator: Arc<Mutex<AtomicTileAccumulator>>,
 ) {
     loop {
-        let stack_result;
-        {
-            let mut mutex_lock = round_stack.lock().unwrap();
-            stack_result = mutex_lock.pop();
-        }
-        let (next_board, depth) = match stack_result {
+        let (next_board, depth) = match round_stack.pop() {
             Some((board, depth)) => (board, depth),
             None => {
                 start_game_worker(game_stack, game_positions_accumulator);
@@ -139,16 +122,11 @@ fn start_round_worker(
 }
 
 fn start_game_worker(
-    game_stack: Arc<Mutex<Vec<(Board, u8)>>>,
+    game_stack: Arc<ArrayQueue<(Board, u8)>>,
     game_positions_accumulator: Arc<Mutex<AtomicPositionAccumulator>>,
 ) {
     loop {
-        let stack_result;
-        {
-            let mut mutex_lock = game_stack.lock().unwrap();
-            stack_result = mutex_lock.pop();
-        }
-        let (next_board, depth) = match stack_result {
+        let (next_board, depth) = match game_stack.pop() {
             Some((board, depth)) => (board, depth),
             None => return,
         };
@@ -164,8 +142,8 @@ fn start_game_worker(
 fn update_round_and_game_state(
     board: Board,
     depth: u8,
-    round_stack: Arc<Mutex<Vec<(Board, u8)>>>,
-    game_stack: Arc<Mutex<Vec<(Board, u8)>>>,
+    round_stack: Arc<ArrayQueue<(Board, u8)>>,
+    game_stack: Arc<ArrayQueue<(Board, u8)>>,
     round_positions_accumulator: Arc<Mutex<AtomicPositionAccumulator>>,
     tile_accumulator: Arc<Mutex<AtomicTileAccumulator>>,
 ) {
@@ -180,27 +158,20 @@ fn update_round_and_game_state(
     }
 
     if board.all_rolled() {
-        let mut game_stack = game_stack.lock().unwrap();
-        game_stack.push((board, depth));
+        let _ = game_stack.push((board, depth));
         return;
     }
 
-    let mut new_boards = Vec::new();
     for roll in board.potential_moves() {
         let next_board = board.update(&roll);
-        new_boards.push((next_board, depth - 1));
-    }
-
-    {
-        let mut round_stack = round_stack.lock().unwrap();
-        round_stack.append(&mut new_boards);
+        let _ = round_stack.push((next_board, depth - 1));
     }
 }
 
 fn update_game_state(
     board: Board,
     depth: u8,
-    game_stack: Arc<Mutex<Vec<(Board, u8)>>>,
+    game_stack: Arc<ArrayQueue<(Board, u8)>>,
     game_positions_accumulator: Arc<Mutex<AtomicPositionAccumulator>>,
 ) {
     if depth == 0 {
@@ -213,15 +184,9 @@ fn update_game_state(
         return;
     }
 
-    let mut new_boards = Vec::new();
     for roll in board.potential_moves() {
         let next_board = board.update(&roll);
-        new_boards.push((next_board, depth - 1));
-    }
-
-    {
-        let mut game_stack = game_stack.lock().unwrap();
-        game_stack.append(&mut new_boards);
+        let _ = game_stack.push((next_board, depth - 1));
     }
 }
 
