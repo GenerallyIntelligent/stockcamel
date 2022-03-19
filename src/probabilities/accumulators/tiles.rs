@@ -1,6 +1,6 @@
 use crate::constants;
 use crossbeam::utils::CachePadded;
-use std::ops::{AddAssign, Deref, DerefMut};
+use std::ops::{Add, AddAssign, Deref, DerefMut};
 use std::sync::{atomic, Arc};
 
 pub struct TileAccumulator([u32; constants::BOARD_SIZE]);
@@ -21,6 +21,25 @@ impl Deref for TileAccumulator {
 impl DerefMut for TileAccumulator {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
+    }
+}
+
+impl Add for TileAccumulator {
+    type Output = TileAccumulator;
+    fn add(self, rhs: TileAccumulator) -> Self::Output {
+        let mut result = TileAccumulator::new();
+        for (idx, (val_one, val_two)) in self.iter().zip(rhs.iter()).enumerate() {
+            result[idx] = val_one + val_two;
+        }
+        result
+    }
+}
+
+impl AddAssign for TileAccumulator {
+    fn add_assign(&mut self, other: TileAccumulator) {
+        for (idx, val) in other.iter().enumerate() {
+            self[idx] += *val;
+        }
     }
 }
 
@@ -46,6 +65,12 @@ impl AtomicTileAccumulator {
             CachePadded::new(atomic::AtomicU32::new(0)),
             CachePadded::new(atomic::AtomicU32::new(0)),
         ])
+    }
+
+    pub fn add(&self, tile_accumulator: TileAccumulator) {
+        for (idx, val) in tile_accumulator.iter().enumerate() {
+            self[idx].fetch_add(*val, atomic::Ordering::Relaxed);
+        }
     }
 }
 

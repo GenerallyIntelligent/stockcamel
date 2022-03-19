@@ -34,11 +34,11 @@ fn main() {
     coz::thread_init();
     let board = create_board();
     let (game_position_probabilies, round_position_probabilities, tile_probabilities) =
-        probabilities::solve_probabilities(board, 5, 24);
+        probabilities::solve_probabilities(board, 6, 24);
     println!(
         "{}\n{}\n{}\n",
         game_position_probabilies, round_position_probabilities, tile_probabilities
     );
 
-    time_probabilities(100000);
+    // time_probabilities(1000);
 }

@@ -3,6 +3,7 @@ use crossbeam::utils::CachePadded;
 use std::ops::{Add, AddAssign, Deref, DerefMut};
 use std::sync::{atomic, Arc};
 
+#[derive(Clone, Copy)]
 pub struct PositionAccumulator([[u32; constants::NUM_CAMELS]; constants::NUM_CAMELS]);
 
 impl PositionAccumulator {
@@ -16,12 +17,6 @@ impl PositionAccumulator {
             num_terminal += position_num;
         }
         return num_terminal;
-    }
-
-    pub fn update(&mut self, camel_order: board::CamelOrder) {
-        for (position, camel_num) in camel_order.iter().enumerate() {
-            self[*camel_num as usize - 1][position] += 1;
-        }
     }
 }
 
@@ -48,6 +43,26 @@ impl Add for PositionAccumulator {
             }
         }
         result
+    }
+}
+
+impl AddAssign for PositionAccumulator {
+    fn add_assign(&mut self, other: PositionAccumulator) {
+        for (x, row) in other.iter().enumerate() {
+            for (y, val) in row.iter().enumerate() {
+                self[x][y] += *val;
+            }
+        }
+    }
+}
+
+impl From<board::CamelOrder> for PositionAccumulator {
+    fn from(camel_order: board::CamelOrder) -> Self {
+        let mut new_position_accumulator = PositionAccumulator::new();
+        for (position, camel_num) in camel_order.iter().enumerate() {
+            new_position_accumulator[*camel_num as usize - 1][position] += 1;
+        }
+        new_position_accumulator
     }
 }
 
@@ -104,9 +119,11 @@ impl AtomicPositionAccumulator {
         return num_terminal;
     }
 
-    pub fn update(&self, camel_order: board::CamelOrder) {
-        for (position, camel_num) in camel_order.iter().enumerate() {
-            self[*camel_num as usize - 1][position].fetch_add(1, atomic::Ordering::Relaxed);
+    pub fn add(&self, position_accumulator: PositionAccumulator) {
+        for (x, vector) in position_accumulator.iter().enumerate() {
+            for (y, val) in vector.iter().enumerate() {
+                self[x][y].fetch_add(*val, atomic::Ordering::Relaxed);
+            }
         }
     }
 }
@@ -169,24 +186,6 @@ impl From<&AtomicPositionAccumulator> for PositionAccumulator {
 
 impl From<AtomicPositionAccumulator> for PositionAccumulator {
     fn from(atomic_position_accumulator: AtomicPositionAccumulator) -> PositionAccumulator {
-        (&atomic_position_accumulator).into()
-    }
-}
-
-impl From<&Arc<AtomicPositionAccumulator>> for PositionAccumulator {
-    fn from(atomic_position_accumulator: &Arc<AtomicPositionAccumulator>) -> PositionAccumulator {
-        let mut position_accumulator = PositionAccumulator::new();
-        for (x, row) in atomic_position_accumulator.iter().enumerate() {
-            for (y, val) in row.iter().enumerate() {
-                position_accumulator[x][y] = val.load(atomic::Ordering::Relaxed);
-            }
-        }
-        position_accumulator
-    }
-}
-
-impl From<Arc<AtomicPositionAccumulator>> for PositionAccumulator {
-    fn from(atomic_position_accumulator: Arc<AtomicPositionAccumulator>) -> PositionAccumulator {
         (&atomic_position_accumulator).into()
     }
 }
