@@ -5,6 +5,7 @@ use crate::probabilities::accumulators::{
     AtomicPositionAccumulator, AtomicTileAccumulator, PositionAccumulator, TileAccumulator,
 };
 use crate::probabilities::odds::{CamelOdds, TileOdds};
+use crossbeam::queue::ArrayQueue;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use std::sync::{Arc, Mutex};
 use std::{panic, thread};
@@ -14,82 +15,47 @@ pub fn solve_probabilities(
     depth: u8,
     num_workers: u8,
 ) -> (CamelOdds, CamelOdds, TileOdds) {
-    let round_positions_accumulator = Arc::new(Mutex::new(AtomicPositionAccumulator::new()));
-    let game_positions_accumulator = Arc::new(Mutex::new(AtomicPositionAccumulator::new()));
-    let tile_accumulator = Arc::new(Mutex::new(AtomicTileAccumulator::new()));
+    coz::scope!("Solve Probabilities");
+    let round_positions_accumulator = Arc::new(AtomicPositionAccumulator::new());
+    let game_positions_accumulator = Arc::new(AtomicPositionAccumulator::new());
+    let tile_accumulator = Arc::new(AtomicTileAccumulator::new());
 
-    let round_stack = Arc::new(Mutex::new(Vec::new()));
-    {
-        let mut round_stack = round_stack.lock().unwrap();
-        round_stack.push((board, depth));
-    }
-    let game_stack = Arc::new(Mutex::new(Vec::new()));
+    //TODO: Figure out the smallest we can make these stacks and still not have problems.
+    let round_stack = Arc::new(ArrayQueue::new(30));
+    let _ = round_stack.push((board, depth));
+    let game_stack = Arc::new(ArrayQueue::new(29160));
 
     seed_stack(round_stack.clone(), num_workers);
 
-    let mut worker_handles = Vec::new();
-    for _ in 0..num_workers {
-        let round_stack = round_stack.clone();
-        let game_stack = game_stack.clone();
-        let game_positions_accumulator = game_positions_accumulator.clone();
-        let round_positions_accumulator = round_positions_accumulator.clone();
-        let tile_accumulator = tile_accumulator.clone();
-        let handle = thread::spawn(move || {
-            coz::thread_init();
-            start_round_worker(
-                round_stack,
-                game_stack.clone(),
-                round_positions_accumulator,
-                tile_accumulator,
-            );
-            start_game_worker(game_stack, game_positions_accumulator);
-        });
-        worker_handles.push(handle);
+    (0..num_workers).into_par_iter().for_each(|_| {
+        coz::thread_init();
+        start_round_worker(
+            round_stack.clone(),
+            game_stack.clone(),
+            round_positions_accumulator.clone(),
+            tile_accumulator.clone(),
+        );
+        start_game_worker(game_stack.clone(), game_positions_accumulator.clone());
+    });
+
+    let round_positions_accumulator: PositionAccumulator = round_positions_accumulator.into();
+    let mut game_positions_accumulator: PositionAccumulator = game_positions_accumulator.into();
+    let tile_accumulator: TileAccumulator = tile_accumulator.into();
+
+    let round_terminal_states = round_positions_accumulator.count_terminal();
+    let round_position_odds = CamelOdds::new(&round_positions_accumulator, &round_terminal_states);
+    if depth <= 5 {
+        game_positions_accumulator = round_positions_accumulator;
     }
-
-    for handle in worker_handles {
-        handle.join().unwrap();
-    }
-
-    // (0..num_workers).into_par_iter().for_each(|worker_num| {
-    //     println!("Created worker {}", worker_num);
-    //     start_round_worker(
-    //         round_stack.clone(),
-    //         game_stack.clone(),
-    //         game_positions_accumulator.clone(),
-    //         round_positions_accumulator.clone(),
-    //         tile_accumulator.clone(),
-    //     );
-    // });
-
-    {
-        let round_positions_accumulator: PositionAccumulator =
-            round_positions_accumulator.lock().unwrap().clone().into();
-        let mut game_positions_accumulator: PositionAccumulator =
-            game_positions_accumulator.lock().unwrap().clone().into();
-        let tile_accumulator: TileAccumulator = tile_accumulator.lock().unwrap().clone().into();
-
-        let rount_terminal_states = round_positions_accumulator.count_terminal();
-        let rount_position_odds =
-            CamelOdds::new(&round_positions_accumulator, &rount_terminal_states);
-        if depth <= 5 {
-            game_positions_accumulator = round_positions_accumulator;
-        }
-        let game_position_odds = game_positions_accumulator.into();
-        let tile_odds = TileOdds::new(&tile_accumulator, &rount_terminal_states);
-        (game_position_odds, rount_position_odds, tile_odds)
-    }
+    let game_position_odds = game_positions_accumulator.into();
+    let tile_odds = TileOdds::new(&tile_accumulator, &round_terminal_states);
+    (game_position_odds, round_position_odds, tile_odds)
 }
 
-fn seed_stack(stack: Arc<Mutex<Vec<(Board, u8)>>>, num_to_seed: u8) {
+fn seed_stack(stack: Arc<ArrayQueue<(Board, u8)>>, num_to_seed: u8) {
     let mut num_seeded = 1;
     while num_seeded < num_to_seed {
-        let stack_result;
-        {
-            let mut mutex_lock = stack.lock().unwrap();
-            stack_result = mutex_lock.pop();
-        }
-        let (board, depth) = match stack_result {
+        let (board, depth) = match stack.pop() {
             Some((board, depth)) => (board, depth),
             None => panic!(
                 "Failed to seed the stack with at least {} board states!",
@@ -97,41 +63,36 @@ fn seed_stack(stack: Arc<Mutex<Vec<(Board, u8)>>>, num_to_seed: u8) {
             ),
         };
         num_seeded -= 1;
-        let mut new_boards = Vec::new();
         for roll in board.potential_moves() {
             let next_board = board.update(&roll);
-            new_boards.push((next_board, depth - 1));
+            match stack.push((next_board, depth - 1)) {
+                Ok(_) => {}
+                Err(_) => panic!("Exceeded probability stack!"),
+            };
             num_seeded += 1;
-        }
-
-        {
-            let mut stack = stack.lock().unwrap();
-            stack.append(&mut new_boards);
         }
     }
 }
 
 fn start_round_worker(
-    round_stack: Arc<Mutex<Vec<(Board, u8)>>>,
-    game_stack: Arc<Mutex<Vec<(Board, u8)>>>,
-    round_positions_accumulator: Arc<Mutex<AtomicPositionAccumulator>>,
-    tile_accumulator: Arc<Mutex<AtomicTileAccumulator>>,
+    round_stack: Arc<ArrayQueue<(Board, u8)>>,
+    game_stack: Arc<ArrayQueue<(Board, u8)>>,
+    round_positions_accumulator: Arc<AtomicPositionAccumulator>,
+    tile_accumulator: Arc<AtomicTileAccumulator>,
 ) {
+    let mut private_stack = Vec::with_capacity(50);
     loop {
-        coz::progress!("Round Worker");
-        let stack_result;
-        {
-            let mut mutex_lock = round_stack.lock().unwrap();
-            stack_result = mutex_lock.pop();
-        }
-        let (next_board, depth) = match stack_result {
+        let (board, depth) = match private_stack.pop() {
             Some((board, depth)) => (board, depth),
-            None => return,
+            None => match round_stack.pop() {
+                Some((board, depth)) => (board, depth),
+                None => return,
+            },
         };
         update_round_and_game_state(
-            next_board,
+            board,
             depth,
-            round_stack.clone(),
+            &mut private_stack,
             game_stack.clone(),
             round_positions_accumulator.clone(),
             tile_accumulator.clone(),
@@ -140,24 +101,22 @@ fn start_round_worker(
 }
 
 fn start_game_worker(
-    game_stack: Arc<Mutex<Vec<(Board, u8)>>>,
-    game_positions_accumulator: Arc<Mutex<AtomicPositionAccumulator>>,
+    game_stack: Arc<ArrayQueue<(Board, u8)>>,
+    game_positions_accumulator: Arc<AtomicPositionAccumulator>,
 ) {
+    let mut private_stack = Vec::new();
     loop {
-        coz::progress!("Game Worker");
-        let stack_result;
-        {
-            let mut mutex_lock = game_stack.lock().unwrap();
-            stack_result = mutex_lock.pop();
-        }
-        let (next_board, depth) = match stack_result {
+        let (next_board, depth) = match private_stack.pop() {
             Some((board, depth)) => (board, depth),
-            None => return,
+            None => match game_stack.pop() {
+                Some((board, depth)) => (board, depth),
+                None => return,
+            },
         };
         update_game_state(
             next_board,
             depth,
-            game_stack.clone(),
+            &mut private_stack,
             game_positions_accumulator.clone(),
         );
     }
@@ -166,72 +125,51 @@ fn start_game_worker(
 fn update_round_and_game_state(
     board: Board,
     depth: u8,
-    round_stack: Arc<Mutex<Vec<(Board, u8)>>>,
-    game_stack: Arc<Mutex<Vec<(Board, u8)>>>,
-    round_positions_accumulator: Arc<Mutex<AtomicPositionAccumulator>>,
-    tile_accumulator: Arc<Mutex<AtomicTileAccumulator>>,
+    round_stack: &mut Vec<(Board, u8)>,
+    game_stack: Arc<ArrayQueue<(Board, u8)>>,
+    round_positions_accumulator: Arc<AtomicPositionAccumulator>,
+    tile_accumulator: Arc<AtomicTileAccumulator>,
 ) {
-    coz::scope!("Update Round and Game State");
     if depth == 0 {
-        let mut round_lock = round_positions_accumulator.lock().unwrap();
-        *round_lock += terminal_node_heuristic(board);
+        round_positions_accumulator.update(terminal_node_heuristic(board));
         return;
     } else if board.is_terminal() {
-        let mut round_lock = round_positions_accumulator.lock().unwrap();
-        *round_lock += board.camel_order();
+        round_positions_accumulator.update(board.camel_order());
         return;
     }
 
     if board.all_rolled() {
-        {
-            let mut round_lock = round_positions_accumulator.lock().unwrap();
-            *round_lock += board.camel_order();
-        }
-        {
-            let mut game_stack = game_stack.lock().unwrap();
-            game_stack.push((board, depth));
-        }
+        match game_stack.push((board, depth)) {
+            Ok(_) => {}
+            Err(_) => panic!("Exceeded probability stack!"),
+        };
+        round_positions_accumulator.update(board.camel_order());
         return;
     }
 
-    let mut new_boards = Vec::new();
     for roll in board.potential_moves() {
         let next_board = board.update(&roll);
-        new_boards.push((next_board, depth - 1));
-    }
-
-    {
-        let mut round_stack = round_stack.lock().unwrap();
-        round_stack.append(&mut new_boards);
+        round_stack.push((next_board, depth - 1));
     }
 }
 
 fn update_game_state(
     board: Board,
     depth: u8,
-    game_stack: Arc<Mutex<Vec<(Board, u8)>>>,
-    game_positions_accumulator: Arc<Mutex<AtomicPositionAccumulator>>,
+    game_stack: &mut Vec<(Board, u8)>,
+    game_positions_accumulator: Arc<AtomicPositionAccumulator>,
 ) {
-    coz::scope!("Update Game State");
     if depth == 0 {
-        let mut round_lock = game_positions_accumulator.lock().unwrap();
-        *round_lock += terminal_node_heuristic(board);
+        game_positions_accumulator.update(terminal_node_heuristic(board));
         return;
     } else if board.is_terminal() {
-        let mut round_lock = game_positions_accumulator.lock().unwrap();
-        *round_lock += board.camel_order();
+        game_positions_accumulator.update(board.camel_order());
         return;
     }
 
-    let mut new_boards = Vec::new();
     for roll in board.potential_moves() {
         let next_board = board.update(&roll);
-        new_boards.push((next_board, depth - 1));
-    }
-
-    {
-        let mut game_stack = game_stack.lock().unwrap();
-        game_stack.append(&mut new_boards);
+        game_stack.push((next_board, depth - 1));
     }
 }
 

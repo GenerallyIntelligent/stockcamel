@@ -1,7 +1,7 @@
 use crate::constants;
 use crossbeam::utils::CachePadded;
 use std::ops::{AddAssign, Deref, DerefMut};
-use std::sync::atomic;
+use std::sync::{atomic, Arc};
 
 pub struct TileAccumulator([u32; constants::BOARD_SIZE]);
 
@@ -109,6 +109,22 @@ impl From<&AtomicTileAccumulator> for TileAccumulator {
 
 impl From<AtomicTileAccumulator> for TileAccumulator {
     fn from(atomic_tile_accumulator: AtomicTileAccumulator) -> TileAccumulator {
+        (&atomic_tile_accumulator).into()
+    }
+}
+
+impl From<&Arc<AtomicTileAccumulator>> for TileAccumulator {
+    fn from(atomic_tile_accumulator: &Arc<AtomicTileAccumulator>) -> TileAccumulator {
+        let mut tile_accumulator = TileAccumulator::new();
+        for (idx, val) in atomic_tile_accumulator.iter().enumerate() {
+            tile_accumulator[idx] = val.load(atomic::Ordering::Relaxed);
+        }
+        tile_accumulator
+    }
+}
+
+impl From<Arc<AtomicTileAccumulator>> for TileAccumulator {
+    fn from(atomic_tile_accumulator: Arc<AtomicTileAccumulator>) -> TileAccumulator {
         (&atomic_tile_accumulator).into()
     }
 }
