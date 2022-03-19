@@ -10,6 +10,7 @@ rand = "0.8"
 crossbeam = "0.8.1"
 parking_lot = "0.12.0"
 rayon = "1.5.1"
+coz = "0.1"
 
 [profile.release]
 debug = true

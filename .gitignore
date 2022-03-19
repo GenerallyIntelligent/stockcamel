@@ -3,3 +3,4 @@
 # Perfomance testing
 flamegraph.svg
 perf.*
+*.coz

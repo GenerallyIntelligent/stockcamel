@@ -1,7 +1,7 @@
 use crate::{board, constants};
 use crossbeam::utils::CachePadded;
-use std::ops::{AddAssign, Deref, DerefMut};
-use std::sync::atomic;
+use std::ops::{Add, AddAssign, Deref, DerefMut};
+use std::sync::{atomic, Arc};
 
 pub struct PositionAccumulator([[u32; constants::NUM_CAMELS]; constants::NUM_CAMELS]);
 
@@ -15,7 +15,13 @@ impl PositionAccumulator {
         for position_num in self[0] {
             num_terminal += position_num;
         }
-        num_terminal
+        return num_terminal;
+    }
+
+    pub fn update(&mut self, camel_order: board::CamelOrder) {
+        for (position, camel_num) in camel_order.iter().enumerate() {
+            self[*camel_num as usize - 1][position] += 1;
+        }
     }
 }
 
@@ -29,6 +35,19 @@ impl Deref for PositionAccumulator {
 impl DerefMut for PositionAccumulator {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
+    }
+}
+
+impl Add for PositionAccumulator {
+    type Output = PositionAccumulator;
+    fn add(self, rhs: PositionAccumulator) -> Self::Output {
+        let mut result = PositionAccumulator::new();
+        for (x, (row_one, row_two)) in self.iter().zip(rhs.iter()).enumerate() {
+            for (y, (val_one, val_two)) in row_one.iter().zip(row_two.iter()).enumerate() {
+                result[x][y] = val_one + val_two;
+            }
+        }
+        result
     }
 }
 
@@ -82,7 +101,13 @@ impl AtomicPositionAccumulator {
         for position_num in &self[0] {
             num_terminal += position_num.load(atomic::Ordering::Relaxed);
         }
-        num_terminal
+        return num_terminal;
+    }
+
+    pub fn update(&self, camel_order: board::CamelOrder) {
+        for (position, camel_num) in camel_order.iter().enumerate() {
+            self[*camel_num as usize - 1][position].fetch_add(1, atomic::Ordering::Relaxed);
+        }
     }
 }
 
@@ -109,24 +134,6 @@ impl Deref for AtomicPositionAccumulator {
 impl DerefMut for AtomicPositionAccumulator {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
-    }
-}
-
-impl AddAssign<board::CamelOrder> for AtomicPositionAccumulator {
-    fn add_assign(&mut self, rhs: board::CamelOrder) {
-        for (position, camel) in rhs.iter().enumerate() {
-            self[*camel as usize - 1][position].fetch_add(1, atomic::Ordering::Relaxed);
-        }
-    }
-}
-
-impl AddAssign<PositionAccumulator> for AtomicPositionAccumulator {
-    fn add_assign(&mut self, rhs: PositionAccumulator) {
-        for (x, vector) in rhs.iter().enumerate() {
-            for (y, val) in vector.iter().enumerate() {
-                self[x][y].fetch_add(*val, atomic::Ordering::Relaxed);
-            }
-        }
     }
 }
 
@@ -162,6 +169,24 @@ impl From<&AtomicPositionAccumulator> for PositionAccumulator {
 
 impl From<AtomicPositionAccumulator> for PositionAccumulator {
     fn from(atomic_position_accumulator: AtomicPositionAccumulator) -> PositionAccumulator {
+        (&atomic_position_accumulator).into()
+    }
+}
+
+impl From<&Arc<AtomicPositionAccumulator>> for PositionAccumulator {
+    fn from(atomic_position_accumulator: &Arc<AtomicPositionAccumulator>) -> PositionAccumulator {
+        let mut position_accumulator = PositionAccumulator::new();
+        for (x, row) in atomic_position_accumulator.iter().enumerate() {
+            for (y, val) in row.iter().enumerate() {
+                position_accumulator[x][y] = val.load(atomic::Ordering::Relaxed);
+            }
+        }
+        position_accumulator
+    }
+}
+
+impl From<Arc<AtomicPositionAccumulator>> for PositionAccumulator {
+    fn from(atomic_position_accumulator: Arc<AtomicPositionAccumulator>) -> PositionAccumulator {
         (&atomic_position_accumulator).into()
     }
 }
