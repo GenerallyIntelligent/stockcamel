@@ -1,136 +1,137 @@
 use crate::constants;
 use std::fmt;
 
-pub type Positions = [[u8; constants::NUM_CAMELS]; constants::BOARD_SIZE + 1];
-pub type Rolls = [bool; constants::NUM_CAMELS];
+pub type Camel = u8;
+pub type Camels = [Camel; constants::NUM_CAMELS];
 pub type Terrain = [bool; constants::BOARD_SIZE];
-pub type CamelOrder = [u8; constants::NUM_CAMELS];
+pub type CamelOrder = [usize; constants::NUM_CAMELS];
+
+const TILE_MASK: u8 = 240;
+const POSITION_MASK: u8 = 14;
+const ROLL_MASK: u8 = 1;
+const WINNING_CAMEL: u8 = 255;
 
 #[derive(Copy, Clone)]
 pub struct Board {
-    positions: Positions,
-    rolls: Rolls,
+    camels: [Camel; constants::NUM_CAMELS],
     oasis: Terrain,
     desert: Terrain,
 }
 
 #[derive(Copy, Clone)]
 pub struct Roll {
-    camel: u8,
-    spaces: u8,
+    camel: usize,
+    tiles: u8,
 }
 
 impl Board {
-    pub fn new(positions: Positions, rolls: Rolls, oasis: Terrain, desert: Terrain) -> Self {
+    pub fn new(camels: Camels, oasis: Terrain, desert: Terrain) -> Self {
         Board {
-            positions: positions,
-            rolls: rolls,
+            camels: camels,
             oasis: oasis,
             desert: desert,
         }
     }
 
     pub fn update(&self, roll: &Roll) -> Board {
-        let (new_board, _) = self.update_with_target(roll);
-        new_board
+        println!("updating");
+        let mut new_board = self.clone();
+        let camel = self.camels[roll.camel];
+        let current_tile = (camel & TILE_MASK) >> 4;
+        let current_position = (camel & POSITION_MASK) >> 1;
+        for camel in self.camels {
+            println!("{}", camel);
+        }
+
+        let mut target_tile = current_tile + roll.tiles;
+        if target_tile >= 16 {
+            panic!("HAVE NOT HANDLED WINNING!");
+            // This is a winning roll
+        }
+
+        let mut camels_updating = [usize::MAX; constants::NUM_CAMELS];
+        camels_updating[current_position as usize] = roll.camel;
+        let mut target_position = 0;
+
+        if self.desert[target_tile as usize] {
+            target_tile = target_tile - 1;
+            let mut displaced_camels = Vec::with_capacity(4);
+            for (camel_num, camel) in self.camels.iter().enumerate() {
+                let camel_tile = (camel & TILE_MASK) >> 4;
+                if camel_tile == current_tile {
+                    let camel_position = (camel & POSITION_MASK) >> 1;
+                    if camel_position > current_position {
+                        camels_updating[camel_position as usize] = camel_num;
+                    }
+                } else if camel_tile == target_tile {
+                    displaced_camels.push(camel_num);
+                }
+            }
+            let num_moving = camels_updating.len() as u8;
+            for camel_num in displaced_camels {
+                new_board.camels[camel_num] = self.camels[camel_num] + (num_moving << 1)
+            }
+        } else {
+            if self.oasis[target_tile as usize] {
+                target_tile = target_tile + 1;
+            }
+            for (camel_num, camel) in self.camels.iter().enumerate() {
+                let camel_tile = (camel & TILE_MASK) >> 4;
+                if camel_tile == target_tile {
+                    let camel_position = (camel & POSITION_MASK) >> 1;
+                    target_position = camel_position + 1;
+                } else if camel_tile == current_tile {
+                    let camel_position = (camel & POSITION_MASK) >> 1;
+                    if camel_position > current_position {
+                        camels_updating[camel_position as usize] = camel_num;
+                    }
+                }
+            }
+        }
+        for camel_num in camels_updating {
+            if camel_num == usize::MAX {
+                continue;
+            }
+            new_board.camels[camel_num] = self.camels[camel_num] | (target_position << 1);
+            target_position += 1;
+        }
+        return new_board;
     }
 
     pub fn update_with_target(&self, roll: &Roll) -> (Board, usize) {
-        let mut new_board = self.clone();
-        let (current_tile, current_position) = self.find_camel(roll.camel);
-        let initial_target_tile = usize::min(current_tile + roll.spaces as usize, 16);
-        let mut target_tile = initial_target_tile;
-
-        if target_tile >= 16 || !self.desert[target_tile] {
-            if !(target_tile >= 16) && self.oasis[target_tile] {
-                target_tile += 1;
-            }
-            let mut target_position = 0;
-            for camel_num in self.positions[target_tile] {
-                if camel_num <= 0 {
-                    break;
-                }
-                target_position += 1;
-            }
-            let moving_stack_height = 5 - usize::max(current_position, target_position);
-            let moving_slice = &self.positions[current_tile]
-                [current_position..current_position + moving_stack_height];
-            new_board.positions[target_tile]
-                [target_position..target_position + moving_stack_height]
-                .clone_from_slice(moving_slice);
-            let static_slice = &self.positions[target_tile]
-                [target_position..target_position + moving_stack_height];
-            new_board.positions[current_tile]
-                [current_position..current_position + moving_stack_height]
-                .clone_from_slice(static_slice);
-        } else {
-            target_tile -= 1;
-            let mut stack_height = 0;
-            for camel_num in self.positions[current_tile] {
-                if camel_num <= 0 {
-                    break;
-                }
-                stack_height += 1;
-            }
-            let moving_stack_height = stack_height - current_position;
-            let static_slice = &self.positions[target_tile + 1][5 - moving_stack_height..5];
-            new_board.positions[current_tile]
-                [current_position..current_position + moving_stack_height]
-                .clone_from_slice(static_slice);
-            let preexisting_slice_height = 5 - moving_stack_height;
-            let preexisting_stack = new_board.positions[target_tile];
-            new_board.positions[target_tile]
-                [moving_stack_height..moving_stack_height + preexisting_slice_height]
-                .clone_from_slice(&preexisting_stack[0..preexisting_slice_height]);
-            let moving_slice = &self.positions[current_tile]
-                [current_position..current_position + moving_stack_height];
-            new_board.positions[target_tile][0..moving_stack_height].clone_from_slice(moving_slice);
-        }
-
-        if new_board.all_rolled() {
-            new_board.rolls = [false; constants::NUM_CAMELS];
-        }
-        new_board.rolls[roll.camel as usize - 1] = true;
-        return (new_board, initial_target_tile);
-    }
-
-    pub fn is_terminal(&self) -> bool {
-        for camel in self.positions[constants::BOARD_SIZE] {
-            if camel > 0 {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    pub fn find_camel(&self, camel: u8) -> (usize, usize) {
-        for (tile, stack) in self.positions.iter().enumerate() {
-            for (position, candidate_camel) in stack.iter().enumerate() {
-                if camel == *candidate_camel {
-                    return (tile, position);
-                }
-            }
-        }
-        panic!("Tried to find a camel which does not exist!");
+        let camel = self.camels[roll.camel];
+        let current_tile = (camel & TILE_MASK) >> 4;
+        let original_target_tile = current_tile + roll.tiles;
+        let board = self.update(roll);
+        return (board, original_target_tile as usize);
     }
 
     pub fn camel_order(&self) -> CamelOrder {
         let mut camel_order = [0; constants::NUM_CAMELS];
         let mut idx = 5;
-        for tile in self.positions {
-            for camel in tile {
-                if camel > 0 {
+        for tile in 0..16 {
+            for (camel_num, camel) in self.camels.iter().enumerate() {
+                if (tile << 4) == (camel & TILE_MASK) {
                     idx -= 1;
-                    camel_order[idx] = camel;
+                    camel_order[idx] = camel_num;
                 }
             }
         }
         return camel_order;
     }
 
+    pub fn is_terminal(&self) -> bool {
+        for camel in self.camels {
+            if camel == WINNING_CAMEL {
+                return true;
+            }
+        }
+        return false;
+    }
+
     pub fn all_rolled(&self) -> bool {
-        for has_rolled in self.rolls {
-            if !has_rolled {
+        for camel in self.camels {
+            if (camel & ROLL_MASK) == 0 {
                 return false;
             }
         }
@@ -139,8 +140,8 @@ impl Board {
 
     pub fn num_unrolled(&self) -> u8 {
         let mut num_unrolled = 0;
-        for has_rolled in self.rolls {
-            if !has_rolled {
+        for camel in self.camels {
+            if (camel & ROLL_MASK) == 0 {
                 num_unrolled += 1;
             }
         }
@@ -149,13 +150,12 @@ impl Board {
 
     pub fn potential_moves(&self) -> Vec<Roll> {
         let mut potential_moves = Vec::new();
-        let camels_all_rolled = self.all_rolled();
-        for (camel_num, has_rolled) in self.rolls.iter().enumerate() {
-            if camels_all_rolled || !has_rolled {
+        for (camel_num, camel) in self.camels.iter().enumerate() {
+            if (camel & ROLL_MASK) == 0 {
                 for die_roll in 1..(constants::MAX_ROLL + 1) {
                     let roll = Roll {
-                        camel: camel_num as u8 + 1,
-                        spaces: die_roll,
+                        camel: camel_num,
+                        tiles: die_roll,
                     };
                     potential_moves.push(roll);
                 }
@@ -163,39 +163,44 @@ impl Board {
         }
         return potential_moves;
     }
-}
 
-impl fmt::Display for Board {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        for (tile, camels) in self.positions.iter().enumerate() {
-            if tile < 16 {
-                write!(f, "|")?;
-                for camel in camels {
-                    if *camel == 0 {
-                        write!(f, " |")?;
-                    } else {
-                        write!(f, "{}|", camel)?;
-                    }
-                }
-                if self.oasis[tile] {
-                    write!(f, "[+]")?;
-                } else if self.desert[tile] {
-                    write!(f, "[-]")?;
-                } else {
-                }
-                write!(f, "\n")?;
-            } else {
-                write!(f, "#")?;
-                for camel in camels {
-                    if *camel == 0 {
-                        write!(f, " #")?;
-                    } else {
-                        write!(f, "{}#", camel)?;
-                    }
-                }
-                write!(f, "\n")?;
-            }
-        }
-        Ok(())
+    pub fn hash() -> [u8; constants::NUM_CAMELS + 4] {
+        return [0; constants::NUM_CAMELS + 4];
     }
 }
+
+// TODO: Fix the display implementation for boards...
+// impl fmt::Display for Board {
+//     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+//         for (camel_num, camels) in self.camels.iter().enumerate() {
+//             if tile < 16 {
+//                 write!(f, "|")?;
+//                 for camel in camels {
+//                     if *camel == 0 {
+//                         write!(f, " |")?;
+//                     } else {
+//                         write!(f, "{}|", camel)?;
+//                     }
+//                 }
+//                 if self.oasis[tile] {
+//                     write!(f, "[+]")?;
+//                 } else if self.desert[tile] {
+//                     write!(f, "[-]")?;
+//                 } else {
+//                 }
+//                 write!(f, "\n")?;
+//             } else {
+//                 write!(f, "#")?;
+//                 for camel in camels {
+//                     if *camel == 0 {
+//                         write!(f, " #")?;
+//                     } else {
+//                         write!(f, "{}#", camel)?;
+//                     }
+//                 }
+//                 write!(f, "\n")?;
+//             }
+//         }
+//         Ok(())
+//     }
+// }

@@ -60,7 +60,7 @@ impl From<board::CamelOrder> for PositionAccumulator {
     fn from(camel_order: board::CamelOrder) -> Self {
         let mut new_position_accumulator = PositionAccumulator::new();
         for (position, camel_num) in camel_order.iter().enumerate() {
-            new_position_accumulator[*camel_num as usize - 1][position] += 1;
+            new_position_accumulator[*camel_num][position] += 1;
         }
         new_position_accumulator
     }

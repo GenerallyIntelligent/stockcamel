@@ -5,14 +5,10 @@ mod probabilities;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 fn create_board() -> board::Board {
-    let mut positions = [[0; constants::NUM_CAMELS]; constants::BOARD_SIZE + 1];
-    for index in 0..constants::NUM_CAMELS {
-        positions[0][index] = index as u8 + 1;
-    }
-    let rolls = [false; 5];
+    let camels = [0, 2, 4, 6, 8];
     let oasis = [false; 16];
     let desert = [false; 16];
-    let board = board::Board::new(positions, rolls, oasis, desert);
+    let board = board::Board::new(camels, oasis, desert);
     return board;
 }
 
@@ -21,7 +17,7 @@ fn time_probabilities(n: u32) {
 
     let start = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
     for _ in 1..n {
-        let _ = probabilities::solve_probabilities(board, 5, 24);
+        let _ = probabilities::solve_probabilities(board, 6, 24);
     }
     let end = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
     println!(
@@ -34,11 +30,11 @@ fn main() {
     coz::thread_init();
     let board = create_board();
     let (game_position_probabilies, round_position_probabilities, tile_probabilities) =
-        probabilities::solve_probabilities(board, 6, 24);
+        probabilities::solve_probabilities(board, 5, 1);
     println!(
         "{}\n{}\n{}\n",
         game_position_probabilies, round_position_probabilities, tile_probabilities
     );
 
-    // time_probabilities(1000);
+    // time_probabilities(10000);
 }
