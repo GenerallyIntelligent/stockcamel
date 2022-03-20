@@ -13,15 +13,15 @@ const WINNING_CAMEL: u8 = 255;
 
 #[derive(Copy, Clone)]
 pub struct Board {
-    camels: [Camel; constants::NUM_CAMELS],
-    oasis: Terrain,
-    desert: Terrain,
+    pub camels: [Camel; constants::NUM_CAMELS],
+    pub oasis: Terrain,
+    pub desert: Terrain,
 }
 
 #[derive(Copy, Clone)]
 pub struct Roll {
-    camel: usize,
-    tiles: u8,
+    pub camel: usize,
+    pub tiles: u8,
 }
 
 impl Board {
@@ -34,16 +34,22 @@ impl Board {
     }
 
     pub fn update(&self, roll: &Roll) -> Board {
-        println!("updating");
+        // println!("Updating: moving camel {} {} tiles", roll.camel, roll.tiles);
         let mut new_board = self.clone();
         let camel = self.camels[roll.camel];
         let current_tile = (camel & TILE_MASK) >> 4;
         let current_position = (camel & POSITION_MASK) >> 1;
-        for camel in self.camels {
-            println!("{}", camel);
-        }
+        // for (camel_num, camel) in self.camels.iter().enumerate() {
+        //     let camel_tile = (camel & TILE_MASK) >> 4;
+        //     let camel_position = (camel & POSITION_MASK) >> 1;
+        //     println!(
+        //         "Found camel {} at tile {} in position {}",
+        //         camel_num, camel_tile, camel_position
+        //     );
+        // }
 
         let mut target_tile = current_tile + roll.tiles;
+        // println!("Target tile is {}", target_tile);
         if target_tile >= 16 {
             panic!("HAVE NOT HANDLED WINNING!");
             // This is a winning roll
@@ -53,48 +59,57 @@ impl Board {
         camels_updating[current_position as usize] = roll.camel;
         let mut target_position = 0;
 
-        if self.desert[target_tile as usize] {
-            target_tile = target_tile - 1;
-            let mut displaced_camels = Vec::with_capacity(4);
-            for (camel_num, camel) in self.camels.iter().enumerate() {
-                let camel_tile = (camel & TILE_MASK) >> 4;
-                if camel_tile == current_tile {
-                    let camel_position = (camel & POSITION_MASK) >> 1;
-                    if camel_position > current_position {
-                        camels_updating[camel_position as usize] = camel_num;
-                    }
-                } else if camel_tile == target_tile {
-                    displaced_camels.push(camel_num);
-                }
-            }
-            let num_moving = camels_updating.len() as u8;
-            for camel_num in displaced_camels {
-                new_board.camels[camel_num] = self.camels[camel_num] + (num_moving << 1)
-            }
-        } else {
-            if self.oasis[target_tile as usize] {
-                target_tile = target_tile + 1;
-            }
-            for (camel_num, camel) in self.camels.iter().enumerate() {
-                let camel_tile = (camel & TILE_MASK) >> 4;
-                if camel_tile == target_tile {
-                    let camel_position = (camel & POSITION_MASK) >> 1;
-                    target_position = camel_position + 1;
-                } else if camel_tile == current_tile {
-                    let camel_position = (camel & POSITION_MASK) >> 1;
-                    if camel_position > current_position {
-                        camels_updating[camel_position as usize] = camel_num;
-                    }
+        // if self.desert[target_tile as usize] {
+        //     target_tile = target_tile - 1;
+        //     let mut displaced_camels = Vec::with_capacity(4);
+        //     let mut num_updating_camels: u8 = 0;
+        //     for (camel_num, camel) in self.camels.iter().enumerate() {
+        //         let camel_tile = (camel & TILE_MASK) >> 4;
+        //         if camel_tile == current_tile {
+        //             let camel_position = (camel & POSITION_MASK) >> 1;
+        //             if camel_position > current_position {
+        //                 camels_updating[camel_position as usize] = camel_num;
+        //                 num_updating_camels += 1;
+        //             }
+        //         } else if camel_tile == target_tile {
+        //             displaced_camels.push(camel_num);
+        //         }
+        //     }
+        //     for camel_num in displaced_camels {
+        //         new_board.camels[camel_num] = self.camels[camel_num] + (num_updating_camels << 1)
+        //     }
+        // } else {
+        // if self.oasis[target_tile as usize] {
+        //     target_tile = target_tile + 1;
+        // }
+        for (camel_num, camel) in self.camels.iter().enumerate() {
+            let camel_tile = (camel & TILE_MASK) >> 4;
+            if camel_tile == target_tile {
+                let camel_position = (camel & POSITION_MASK) >> 1;
+                target_position = target_position.max(camel_position + 1);
+            } else if camel_tile == current_tile {
+                let camel_position = (camel & POSITION_MASK) >> 1;
+                if camel_position > current_position {
+                    camels_updating[camel_position as usize] = camel_num;
                 }
             }
         }
+        // }
         for camel_num in camels_updating {
             if camel_num == usize::MAX {
                 continue;
             }
-            new_board.camels[camel_num] = self.camels[camel_num] | (target_position << 1);
+            // println!(
+            //     "Moving camel {} to tile {}, position {}",
+            //     camel_num, target_tile, target_position
+            // );
+            new_board.camels[camel_num] = 0
+                | (target_position << 1)
+                | (target_tile << 4)
+                | (self.camels[camel_num] & ROLL_MASK);
             target_position += 1;
         }
+        new_board.camels[roll.camel] |= 1;
         return new_board;
     }
 
