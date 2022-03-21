@@ -28,28 +28,13 @@ fn time_probabilities(n: u32) {
 
 fn main() {
     coz::thread_init();
-    // let board = create_board();
-    // let roll = board::Roll { camel: 2, tiles: 1 };
-    // let next_board = board.update(&roll);
-    // for (camel_num, camel) in next_board.camels.iter().enumerate() {
-    //     println!("{}: {:#010b}", camel_num, camel);
-    // }
-    // let roll = board::Roll { camel: 1, tiles: 1 };
-    // let next_board = next_board.update(&roll);
-    // for (camel_num, camel) in next_board.camels.iter().enumerate() {
-    //     println!("{}: {:#010b}", camel_num, camel);
-    // }
-    // let roll = board::Roll { camel: 3, tiles: 1 };
-    // let next_board = next_board.update(&roll);
-    // for (camel_num, camel) in next_board.camels.iter().enumerate() {
-    //     println!("{}: {:#010b}", camel_num, camel);
-    // }
-    // let (game_position_probabilies, round_position_probabilities, tile_probabilities) =
-    //     probabilities::solve_probabilities(board, 5, 1);
-    // println!(
-    //     "{}\n{}\n{}\n",
-    //     game_position_probabilies, round_position_probabilities, tile_probabilities
-    // );
+    let board = create_board();
+    let (game_position_probabilies, round_position_probabilities, tile_probabilities) =
+        probabilities::solve_probabilities(board, 6, 1);
+    println!(
+        "{}\n{}\n{}\n",
+        game_position_probabilies, round_position_probabilities, tile_probabilities
+    );
 
-    time_probabilities(5000);
+    // time_probabilities(5000);
 }
