@@ -41,9 +41,6 @@ pub fn solve_probabilities(
     let game_positions_accumulator: PositionAccumulator = game_positions_accumulator.into();
     let tile_accumulator: TileAccumulator = tile_accumulator.into();
 
-    println!("{}", game_positions_accumulator.count_terminal());
-    println!("{}", game_positions_accumulator[0][0]);
-
     let round_terminal_states = round_positions_accumulator.count_terminal();
     let round_position_odds = CamelOdds::new(&round_positions_accumulator, &round_terminal_states);
     let game_position_odds = game_positions_accumulator.into();

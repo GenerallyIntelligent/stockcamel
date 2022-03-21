@@ -4,14 +4,14 @@ use std::ops::{Add, AddAssign, Deref, DerefMut};
 use std::sync::{atomic, Arc};
 
 #[derive(Clone, Copy)]
-pub struct PositionAccumulator([[u32; constants::NUM_CAMELS]; constants::NUM_CAMELS]);
+pub struct PositionAccumulator([[u64; constants::NUM_CAMELS]; constants::NUM_CAMELS]);
 
 impl PositionAccumulator {
     pub fn new() -> Self {
         PositionAccumulator([[0; constants::NUM_CAMELS]; constants::NUM_CAMELS])
     }
 
-    pub fn count_terminal(&self) -> u32 {
+    pub fn count_terminal(&self) -> u64 {
         let mut num_terminal = 0;
         for position_num in self[0] {
             num_terminal += position_num;
@@ -21,7 +21,7 @@ impl PositionAccumulator {
 }
 
 impl Deref for PositionAccumulator {
-    type Target = [[u32; constants::NUM_CAMELS]; constants::NUM_CAMELS];
+    type Target = [[u64; constants::NUM_CAMELS]; constants::NUM_CAMELS];
     fn deref(&self) -> &Self::Target {
         &self.0
     }
@@ -67,51 +67,51 @@ impl From<board::CamelOrder> for PositionAccumulator {
 }
 
 pub struct AtomicPositionAccumulator(
-    [[CachePadded<atomic::AtomicU32>; constants::NUM_CAMELS]; constants::NUM_CAMELS],
+    [[CachePadded<atomic::AtomicU64>; constants::NUM_CAMELS]; constants::NUM_CAMELS],
 );
 
 impl AtomicPositionAccumulator {
     pub fn new() -> Self {
         AtomicPositionAccumulator([
             [
-                CachePadded::new(atomic::AtomicU32::new(0)),
-                CachePadded::new(atomic::AtomicU32::new(0)),
-                CachePadded::new(atomic::AtomicU32::new(0)),
-                CachePadded::new(atomic::AtomicU32::new(0)),
-                CachePadded::new(atomic::AtomicU32::new(0)),
+                CachePadded::new(atomic::AtomicU64::new(0)),
+                CachePadded::new(atomic::AtomicU64::new(0)),
+                CachePadded::new(atomic::AtomicU64::new(0)),
+                CachePadded::new(atomic::AtomicU64::new(0)),
+                CachePadded::new(atomic::AtomicU64::new(0)),
             ],
             [
-                CachePadded::new(atomic::AtomicU32::new(0)),
-                CachePadded::new(atomic::AtomicU32::new(0)),
-                CachePadded::new(atomic::AtomicU32::new(0)),
-                CachePadded::new(atomic::AtomicU32::new(0)),
-                CachePadded::new(atomic::AtomicU32::new(0)),
+                CachePadded::new(atomic::AtomicU64::new(0)),
+                CachePadded::new(atomic::AtomicU64::new(0)),
+                CachePadded::new(atomic::AtomicU64::new(0)),
+                CachePadded::new(atomic::AtomicU64::new(0)),
+                CachePadded::new(atomic::AtomicU64::new(0)),
             ],
             [
-                CachePadded::new(atomic::AtomicU32::new(0)),
-                CachePadded::new(atomic::AtomicU32::new(0)),
-                CachePadded::new(atomic::AtomicU32::new(0)),
-                CachePadded::new(atomic::AtomicU32::new(0)),
-                CachePadded::new(atomic::AtomicU32::new(0)),
+                CachePadded::new(atomic::AtomicU64::new(0)),
+                CachePadded::new(atomic::AtomicU64::new(0)),
+                CachePadded::new(atomic::AtomicU64::new(0)),
+                CachePadded::new(atomic::AtomicU64::new(0)),
+                CachePadded::new(atomic::AtomicU64::new(0)),
             ],
             [
-                CachePadded::new(atomic::AtomicU32::new(0)),
-                CachePadded::new(atomic::AtomicU32::new(0)),
-                CachePadded::new(atomic::AtomicU32::new(0)),
-                CachePadded::new(atomic::AtomicU32::new(0)),
-                CachePadded::new(atomic::AtomicU32::new(0)),
+                CachePadded::new(atomic::AtomicU64::new(0)),
+                CachePadded::new(atomic::AtomicU64::new(0)),
+                CachePadded::new(atomic::AtomicU64::new(0)),
+                CachePadded::new(atomic::AtomicU64::new(0)),
+                CachePadded::new(atomic::AtomicU64::new(0)),
             ],
             [
-                CachePadded::new(atomic::AtomicU32::new(0)),
-                CachePadded::new(atomic::AtomicU32::new(0)),
-                CachePadded::new(atomic::AtomicU32::new(0)),
-                CachePadded::new(atomic::AtomicU32::new(0)),
-                CachePadded::new(atomic::AtomicU32::new(0)),
+                CachePadded::new(atomic::AtomicU64::new(0)),
+                CachePadded::new(atomic::AtomicU64::new(0)),
+                CachePadded::new(atomic::AtomicU64::new(0)),
+                CachePadded::new(atomic::AtomicU64::new(0)),
+                CachePadded::new(atomic::AtomicU64::new(0)),
             ],
         ])
     }
 
-    pub fn count_terminal(&self) -> u32 {
+    pub fn count_terminal(&self) -> u64 {
         let mut num_terminal = 0;
         for position_num in &self[0] {
             num_terminal += position_num.load(atomic::Ordering::Relaxed);
@@ -142,7 +142,7 @@ impl Clone for AtomicPositionAccumulator {
 }
 
 impl Deref for AtomicPositionAccumulator {
-    type Target = [[CachePadded<atomic::AtomicU32>; constants::NUM_CAMELS]; constants::NUM_CAMELS];
+    type Target = [[CachePadded<atomic::AtomicU64>; constants::NUM_CAMELS]; constants::NUM_CAMELS];
     fn deref(&self) -> &Self::Target {
         &self.0
     }

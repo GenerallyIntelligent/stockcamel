@@ -15,7 +15,7 @@ pub struct TileOdds {
 }
 
 impl CamelOdds {
-    pub fn new(accumulator: &PositionAccumulator, num_terminal: &u32) -> Self {
+    pub fn new(accumulator: &PositionAccumulator, num_terminal: &u64) -> Self {
         let mut position_odds = [[0.0; constants::NUM_CAMELS]; constants::NUM_CAMELS];
         let num_terminal = num_terminal.clone();
         for (x, vector) in accumulator.iter().enumerate() {
@@ -30,7 +30,7 @@ impl CamelOdds {
 }
 
 impl TileOdds {
-    pub fn new(accumulator: &TileAccumulator, num_terminal: &u32) -> Self {
+    pub fn new(accumulator: &TileAccumulator, num_terminal: &u64) -> Self {
         let mut tile_odds = [0.0; constants::BOARD_SIZE];
         for (idx, sum) in accumulator.iter().enumerate() {
             tile_odds[idx] = *sum as f64 / num_terminal.clone() as f64;
