@@ -37,5 +37,5 @@ fn main() {
         game_position_probabilies, round_position_probabilities, tile_probabilities
     );
 
-    time_probabilities(5000);
+    // time_probabilities(5000);
 }

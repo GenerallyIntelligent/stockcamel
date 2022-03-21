@@ -1,6 +1,5 @@
 use crate::camel::*;
 use crate::constants;
-use std::fmt;
 
 pub type Camels = [Camel; constants::NUM_CAMELS];
 pub type Terrain = [bool; constants::BOARD_SIZE];
@@ -15,7 +14,7 @@ pub struct Board {
 
 #[derive(Copy, Clone)]
 pub struct Roll {
-    pub camel: usize,
+    pub camel: u8,
     pub tiles: u8,
 }
 
@@ -30,17 +29,12 @@ impl Board {
 
     pub fn update(&self, roll: &Roll) -> Board {
         let mut new_board = self.clone();
-        let camel = self.camels[roll.camel];
+        let camel = self.camels[roll.camel as usize];
         let (current_tile, current_position) = camel_tile_and_position(&camel);
 
         let mut target_tile = current_tile + roll.tiles as usize;
-        if target_tile >= 16 {
-            panic!("HAVE NOT HANDLED WINNING!");
-            // This is a winning roll
-        }
-
         let mut camels_updating = [usize::MAX; constants::NUM_CAMELS];
-        camels_updating[current_position] = roll.camel;
+        camels_updating[current_position] = roll.camel as usize;
         let mut target_position = 0;
 
         if self.desert[target_tile as usize] {
@@ -52,7 +46,7 @@ impl Board {
                 if camel_tile == current_tile {
                     let camel_position = camel_position(camel);
                     if camel_position > current_position {
-                        camels_updating[camel_position as usize] = camel_num;
+                        camels_updating[camel_position] = camel_num;
                         num_updating_camels += 1;
                     }
                 } else if camel_tile == target_tile {
@@ -87,12 +81,18 @@ impl Board {
                 update_camel(&self.camels[camel_num], &target_tile, &target_position);
             target_position += 1;
         }
-        new_board.camels[roll.camel] |= 1;
+        new_board.camels[roll.camel as usize] =
+            set_roll_true(&new_board.camels[roll.camel as usize]);
+        if new_board.all_rolled() {
+            for camel_num in 0..constants::NUM_CAMELS {
+                new_board.camels[camel_num] = set_roll_false(&new_board.camels[camel_num]);
+            }
+        }
         return new_board;
     }
 
     pub fn update_with_target(&self, roll: &Roll) -> (Board, usize) {
-        let camel = self.camels[roll.camel];
+        let camel = self.camels[roll.camel as usize];
         let current_tile = camel_tile(&camel);
         let original_target_tile = current_tile + roll.tiles as usize;
         let board = self.update(roll);
@@ -164,7 +164,7 @@ impl Board {
             if !camel_has_rolled(camel) {
                 for die_roll in 1..(constants::MAX_ROLL + 1) {
                     let roll = Roll {
-                        camel: camel_num,
+                        camel: camel_num as u8,
                         tiles: die_roll,
                     };
                     potential_moves.push(roll);
