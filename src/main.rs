@@ -17,7 +17,7 @@ fn time_probabilities(n: u32) {
 
     let start = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
     for _ in 1..n {
-        let _ = probabilities::solve_probabilities(board, 5, 64);
+        let _ = probabilities::solve_probabilities(board, 5, 124);
     }
     let end = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
     println!(
@@ -30,11 +30,11 @@ fn main() {
     coz::thread_init();
     let board = create_board();
     let (game_position_probabilies, round_position_probabilities, tile_probabilities) =
-        probabilities::solve_probabilities(board, 6, 1);
+        probabilities::solve_probabilities(board, 5, 1);
     println!(
         "{}\n{}\n{}\n",
         game_position_probabilies, round_position_probabilities, tile_probabilities
     );
 
-    // time_probabilities(5000);
+    time_probabilities(5000);
 }

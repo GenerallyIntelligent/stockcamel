@@ -24,6 +24,32 @@ pub struct Roll {
     pub tiles: u8,
 }
 
+pub fn camel_has_rolled(camel: &Camel) -> bool {
+    (camel & ROLL_MASK) == 1
+}
+
+pub fn camel_has_finished(camel: &Camel) -> bool {
+    camel == &WINNING_CAMEL
+}
+
+pub fn create_camel(tile: &usize, position: &usize, is_rolled: &u8) -> Camel {
+    return 0 | ((*tile as u8) << 4) | ((*position as u8) << 1) | is_rolled;
+}
+
+pub fn camel_tile_and_position(camel: &Camel) -> (usize, usize) {
+    let tile = ((camel & TILE_MASK) >> 4).into();
+    let position = ((camel & POSITION_MASK) >> 1).into();
+    return (tile, position);
+}
+
+pub fn camel_tile(camel: &Camel) -> usize {
+    return ((camel & TILE_MASK) >> 4).into();
+}
+
+pub fn camel_position(camel: &Camel) -> usize {
+    return ((camel & POSITION_MASK) >> 1).into();
+}
+
 impl Board {
     pub fn new(camels: Camels, oasis: Terrain, desert: Terrain) -> Self {
         Board {
@@ -36,17 +62,16 @@ impl Board {
     pub fn update(&self, roll: &Roll) -> Board {
         let mut new_board = self.clone();
         let camel = self.camels[roll.camel];
-        let current_tile = (camel & TILE_MASK) >> 4;
-        let current_position = (camel & POSITION_MASK) >> 1;
+        let (current_tile, current_position) = camel_tile_and_position(&camel);
 
-        let mut target_tile = current_tile + roll.tiles;
+        let mut target_tile = current_tile + roll.tiles as usize;
         if target_tile >= 16 {
             panic!("HAVE NOT HANDLED WINNING!");
             // This is a winning roll
         }
 
         let mut camels_updating = [usize::MAX; constants::NUM_CAMELS];
-        camels_updating[current_position as usize] = roll.camel;
+        camels_updating[current_position] = roll.camel;
         let mut target_position = 0;
 
         if self.desert[target_tile as usize] {
@@ -54,9 +79,9 @@ impl Board {
             let mut displaced_camels = Vec::with_capacity(4);
             let mut num_updating_camels: u8 = 0;
             for (camel_num, camel) in self.camels.iter().enumerate() {
-                let camel_tile = (camel & TILE_MASK) >> 4;
+                let camel_tile = camel_tile(camel);
                 if camel_tile == current_tile {
-                    let camel_position = (camel & POSITION_MASK) >> 1;
+                    let camel_position = camel_position(camel);
                     if camel_position > current_position {
                         camels_updating[camel_position as usize] = camel_num;
                         num_updating_camels += 1;
@@ -73,12 +98,12 @@ impl Board {
                 target_tile = target_tile + 1;
             }
             for (camel_num, camel) in self.camels.iter().enumerate() {
-                let camel_tile = (camel & TILE_MASK) >> 4;
+                let camel_tile = camel_tile(camel);
                 if camel_tile == target_tile {
-                    let camel_position = (camel & POSITION_MASK) >> 1;
+                    let camel_position = camel_position(camel);
                     target_position = target_position.max(camel_position + 1);
                 } else if camel_tile == current_tile {
-                    let camel_position = (camel & POSITION_MASK) >> 1;
+                    let camel_position = camel_position(camel);
                     if camel_position > current_position {
                         camels_updating[camel_position as usize] = camel_num;
                     }
@@ -89,10 +114,11 @@ impl Board {
             if camel_num == usize::MAX {
                 continue;
             }
-            new_board.camels[camel_num] = 0
-                | (target_position << 1)
-                | (target_tile << 4)
-                | (self.camels[camel_num] & ROLL_MASK);
+            new_board.camels[camel_num] = create_camel(
+                &target_tile,
+                &target_position,
+                &(self.camels[camel_num] & ROLL_MASK),
+            );
             target_position += 1;
         }
         new_board.camels[roll.camel] |= 1;
@@ -101,14 +127,14 @@ impl Board {
 
     pub fn update_with_target(&self, roll: &Roll) -> (Board, usize) {
         let camel = self.camels[roll.camel];
-        let current_tile = (camel & TILE_MASK) >> 4;
-        let original_target_tile = current_tile + roll.tiles;
+        let current_tile = camel_tile(&camel);
+        let original_target_tile = current_tile + roll.tiles as usize;
         let board = self.update(roll);
         return (board, original_target_tile as usize);
     }
 
     // Uses the optimal sorting graph for 5 elements to find the permutation
-    // This relies on the fact that the camels will sort by tiles, then position
+    // This relies on the fact that the camels will sort by tiles, then positionn
     pub fn camel_order(&self) -> CamelOrder {
         // Camel numbers indexed by the position
         let mut permutation: [usize; constants::NUM_CAMELS] = [0, 1, 2, 3, 4];
@@ -140,7 +166,7 @@ impl Board {
 
     pub fn is_terminal(&self) -> bool {
         for camel in self.camels {
-            if camel == WINNING_CAMEL {
+            if camel_has_finished(&camel) {
                 return true;
             }
         }
@@ -149,7 +175,7 @@ impl Board {
 
     pub fn all_rolled(&self) -> bool {
         for camel in self.camels {
-            if (camel & ROLL_MASK) == 0 {
+            if !camel_has_rolled(&camel) {
                 return false;
             }
         }
@@ -159,7 +185,7 @@ impl Board {
     pub fn num_unrolled(&self) -> u8 {
         let mut num_unrolled = 0;
         for camel in self.camels {
-            if (camel & ROLL_MASK) == 0 {
+            if !camel_has_rolled(&camel) {
                 num_unrolled += 1;
             }
         }
@@ -169,7 +195,7 @@ impl Board {
     pub fn potential_moves(&self) -> Vec<Roll> {
         let mut potential_moves = Vec::new();
         for (camel_num, camel) in self.camels.iter().enumerate() {
-            if (camel & ROLL_MASK) == 0 {
+            if !camel_has_rolled(camel) {
                 for die_roll in 1..(constants::MAX_ROLL + 1) {
                     let roll = Roll {
                         camel: camel_num,
