@@ -1,15 +1,10 @@
+use crate::camel::*;
 use crate::constants;
 use std::fmt;
 
-pub type Camel = u8;
 pub type Camels = [Camel; constants::NUM_CAMELS];
 pub type Terrain = [bool; constants::BOARD_SIZE];
 pub type CamelOrder = [usize; constants::NUM_CAMELS];
-
-const TILE_MASK: u8 = 240;
-const POSITION_MASK: u8 = 14;
-const ROLL_MASK: u8 = 1;
-const WINNING_CAMEL: u8 = 255;
 
 #[derive(Copy, Clone)]
 pub struct Board {
@@ -22,32 +17,6 @@ pub struct Board {
 pub struct Roll {
     pub camel: usize,
     pub tiles: u8,
-}
-
-pub fn camel_has_rolled(camel: &Camel) -> bool {
-    (camel & ROLL_MASK) == 1
-}
-
-pub fn camel_has_finished(camel: &Camel) -> bool {
-    camel == &WINNING_CAMEL
-}
-
-pub fn create_camel(tile: &usize, position: &usize, is_rolled: &u8) -> Camel {
-    return 0 | ((*tile as u8) << 4) | ((*position as u8) << 1) | is_rolled;
-}
-
-pub fn camel_tile_and_position(camel: &Camel) -> (usize, usize) {
-    let tile = ((camel & TILE_MASK) >> 4).into();
-    let position = ((camel & POSITION_MASK) >> 1).into();
-    return (tile, position);
-}
-
-pub fn camel_tile(camel: &Camel) -> usize {
-    return ((camel & TILE_MASK) >> 4).into();
-}
-
-pub fn camel_position(camel: &Camel) -> usize {
-    return ((camel & POSITION_MASK) >> 1).into();
 }
 
 impl Board {
@@ -114,11 +83,8 @@ impl Board {
             if camel_num == usize::MAX {
                 continue;
             }
-            new_board.camels[camel_num] = create_camel(
-                &target_tile,
-                &target_position,
-                &(self.camels[camel_num] & ROLL_MASK),
-            );
+            new_board.camels[camel_num] =
+                update_camel(&self.camels[camel_num], &target_tile, &target_position);
             target_position += 1;
         }
         new_board.camels[roll.camel] |= 1;

@@ -1,4 +1,5 @@
 mod board;
+mod camel;
 mod constants;
 mod probabilities;
 
