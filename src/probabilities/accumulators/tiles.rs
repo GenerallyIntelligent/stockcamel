@@ -3,6 +3,7 @@ use crossbeam::utils::CachePadded;
 use std::ops::{Add, AddAssign, Deref, DerefMut};
 use std::sync::{atomic, Arc};
 
+#[derive(Clone, Copy)]
 pub struct TileAccumulator([u32; constants::BOARD_SIZE]);
 
 impl TileAccumulator {

@@ -173,10 +173,6 @@ impl Board {
         }
         return potential_moves;
     }
-
-    pub fn hash() -> [u8; constants::NUM_CAMELS + 4] {
-        return [0; constants::NUM_CAMELS + 4];
-    }
 }
 
 // TODO: Fix the display implementation for boards...
