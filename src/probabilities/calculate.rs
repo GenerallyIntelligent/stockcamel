@@ -133,7 +133,8 @@ fn calculate_round_and_game_terminal_states(
     }
 
     for roll in board.potential_moves() {
-        let next_board = board.update(&roll);
+        let (next_board, target) = board.update_with_target(&roll);
+        tile_accumulator[target] += terminal_round_states_from_board(&next_board);
         let (game_positions, round_positions, tiles) = calculate_round_and_game_terminal_states(
             &next_board,
             &(depth - 1),
@@ -219,7 +220,17 @@ fn terminal_node_heuristic(board: &board::Board) -> board::CamelOrder {
     return board.camel_order();
 }
 
-fn terminal_round_states_from_board(board: board::Board) -> u32 {
-    let num_unrolled = board.num_unrolled() as u32;
-    return num_unrolled.pow(constants::MAX_ROLL as u32);
+// Calculating directly is expensive, especially if the values are known for each possible
+fn terminal_round_states_from_board(board: &board::Board) -> u32 {
+    match board.num_unrolled() {
+        0 => 1,
+        1 => 3,
+        2 => 18,
+        3 => 162,
+        4 => 1944,
+        5 => 1,
+        _ => {
+            panic!("Invalid number of unrolled camels!")
+        }
+    }
 }
