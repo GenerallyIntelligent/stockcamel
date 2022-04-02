@@ -1,18 +1,13 @@
 use crate::board;
 use crate::board::Board;
-use crate::constants;
 use crate::probabilities::accumulators::{
     AtomicPositionAccumulator, AtomicTileAccumulator, PositionAccumulator, TileAccumulator,
 };
 use crate::probabilities::odds::{CamelOdds, TileOdds};
-use crate::probabilities::transposition::{
-    GameTranspositionTable, ProbabilitiesTranspositionTable, RoundTranspositionTable,
-};
+use crate::probabilities::transposition::{GameTranspositionTable, RoundTranspositionTable};
 use crossbeam::queue::ArrayQueue;
-use parking_lot::RwLock;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
-use std::sync::{Arc, Mutex};
-use std::{panic, thread};
+use std::panic;
 
 pub fn solve_probabilities(
     board: board::Board,
@@ -27,9 +22,8 @@ pub fn solve_probabilities(
     let round_transposition_table = RoundTranspositionTable::new(1e5 as u32);
     let game_transposition_table = GameTranspositionTable::new(1e5 as u32);
 
-    let stack = ArrayQueue::new(num_workers * 2);
+    let stack = ArrayQueue::new((num_workers * 2).max(12 * num_workers));
     let _ = stack.push((board, depth));
-    seed_stack(&stack, num_workers);
 
     let transition_depth = depth - board.num_unrolled();
 
@@ -37,6 +31,7 @@ pub fn solve_probabilities(
         coz::thread_init();
         start_worker(
             &stack,
+            1,
             &round_transposition_table,
             &game_transposition_table,
             transition_depth,
@@ -59,6 +54,7 @@ pub fn solve_probabilities(
 
 fn start_worker(
     stack: &ArrayQueue<(Board, u8)>,
+    stack_minimum: usize,
     round_transposition_table: &RoundTranspositionTable,
     game_transposition_table: &GameTranspositionTable,
     transition_depth: u8,
@@ -74,9 +70,42 @@ fn start_worker(
             Some((board, depth)) => (board, depth),
             None => break,
         };
-        if depth > transition_depth {
+        let current_stack_size = stack.len();
+        if current_stack_size < stack_minimum && depth > transition_depth {
+            // Solve for round step and add to public stack
+            let (game_accumulations, round_accumulations, tile_accumulations, next_boards) =
+                calculate_round_step(&board, &depth);
+            private_game_positions += game_accumulations;
+            private_round_positions += round_accumulations;
+            private_tile_positions += tile_accumulations;
+            match next_boards {
+                Some(next_boards) => {
+                    for next_board in next_boards {
+                        if let Err(_) = stack.push((next_board, depth - 1)) {
+                            panic!("Solving probabilities overflowed shared queue!")
+                        }
+                    }
+                }
+                None => {}
+            }
+        } else if current_stack_size < stack_minimum && depth <= transition_depth {
+            // Solve for game step and add to public stack
+            let (game_accumulations, next_boards) = calculate_game_step(&board, &depth);
+            private_game_positions += game_accumulations;
+            match next_boards {
+                Some(next_boards) => {
+                    for next_board in next_boards {
+                        if let Err(_) = stack.push((next_board, depth - 1)) {
+                            panic!("Solving probabilities overflowed shared queue!")
+                        }
+                    }
+                }
+                None => {}
+            }
+        } else if current_stack_size >= stack_minimum && depth > transition_depth {
+            // Solve for round and game recursively
             let (game_accumulations, round_accumulations, tile_accumulations) =
-                calculate_round_and_game_terminal_states(
+                calculate_round_and_game_recursive(
                     &board,
                     &depth,
                     &transition_depth,
@@ -86,9 +115,10 @@ fn start_worker(
             private_game_positions += game_accumulations;
             private_round_positions += round_accumulations;
             private_tile_positions += tile_accumulations;
-        } else {
+        } else if current_stack_size >= stack_minimum && depth <= transition_depth {
+            // Solve for game recursively
             let game_accumulations =
-                calculate_game_terminal_states(&board, &depth, game_transposition_table);
+                calculate_game_recursive(&board, &depth, game_transposition_table);
             private_game_positions += game_accumulations;
         }
     }
@@ -97,7 +127,7 @@ fn start_worker(
     tile_accumulator.add(private_tile_positions);
 }
 
-fn calculate_round_and_game_terminal_states(
+fn calculate_round_and_game_recursive(
     board: &Board,
     depth: &u8,
     transition_depth: &u8,
@@ -109,42 +139,40 @@ fn calculate_round_and_game_terminal_states(
         None => {}
     }
 
-    if depth == &0 {
-        let accum = terminal_node_heuristic(board).into();
-        return (accum, accum, TileAccumulator::new());
-    } else if board.is_terminal() {
-        let accum = board.camel_order().into();
-        return (accum, accum, TileAccumulator::new());
+    if depth <= transition_depth {
+        let game_positions = calculate_game_recursive(board, depth, game_transposition_table);
+        return (
+            game_positions,
+            board.camel_order().into(),
+            TileAccumulator::new(),
+        );
     }
 
     let mut game_positions_accumulator = PositionAccumulator::new();
     let mut round_positions_accumulator = PositionAccumulator::new();
     let mut tile_accumulator = TileAccumulator::new();
 
-    if depth <= transition_depth {
-        round_positions_accumulator += board.camel_order().into();
-        let game_positions = calculate_game_terminal_states(board, depth, game_transposition_table);
-        game_positions_accumulator += game_positions;
-        return (
-            game_positions_accumulator,
-            round_positions_accumulator,
-            tile_accumulator,
-        );
-    }
+    let (game_positions, round_positions, tiles, boards) = calculate_round_step(board, depth);
+    game_positions_accumulator += game_positions;
+    round_positions_accumulator += round_positions;
+    tile_accumulator += tiles;
 
-    for roll in board.potential_moves() {
-        let (next_board, target) = board.update_with_target(&roll);
-        tile_accumulator[target] += terminal_round_states_from_board(&next_board);
-        let (game_positions, round_positions, tiles) = calculate_round_and_game_terminal_states(
-            &next_board,
-            &(depth - 1),
-            transition_depth,
-            round_transposition_table.clone(),
-            game_transposition_table.clone(),
-        );
-        game_positions_accumulator += game_positions;
-        round_positions_accumulator += round_positions;
-        tile_accumulator += tiles;
+    match boards {
+        Some(boards) => {
+            for next_board in boards {
+                let (game_positions, round_positions, tiles) = calculate_round_and_game_recursive(
+                    &next_board,
+                    &(depth - 1),
+                    transition_depth,
+                    round_transposition_table,
+                    game_transposition_table,
+                );
+                game_positions_accumulator += game_positions;
+                round_positions_accumulator += round_positions;
+                tile_accumulator += tiles;
+            }
+        }
+        None => {}
     }
 
     round_transposition_table.update(
@@ -164,7 +192,41 @@ fn calculate_round_and_game_terminal_states(
     );
 }
 
-fn calculate_game_terminal_states(
+fn calculate_round_step(
+    board: &Board,
+    depth: &u8,
+) -> (
+    PositionAccumulator,
+    PositionAccumulator,
+    TileAccumulator,
+    Option<Vec<Board>>,
+) {
+    if depth == &0 {
+        let accum = terminal_node_heuristic(board).into();
+        return (accum, accum, TileAccumulator::new(), None);
+    } else if board.is_terminal() {
+        let accum = board.camel_order().into();
+        return (accum, accum, TileAccumulator::new(), None);
+    }
+
+    let mut tile_accumulator = TileAccumulator::new();
+
+    let mut boards = Vec::new();
+    for roll in board.potential_moves() {
+        let (next_board, target) = board.update_with_target(&roll);
+        tile_accumulator[target] += terminal_round_states_from_board(&next_board);
+        boards.push(next_board);
+    }
+
+    return (
+        PositionAccumulator::new(),
+        PositionAccumulator::new(),
+        tile_accumulator,
+        Some(boards),
+    );
+}
+
+fn calculate_game_recursive(
     board: &Board,
     depth: &u8,
     transposition_table: &GameTranspositionTable,
@@ -174,61 +236,52 @@ fn calculate_game_terminal_states(
         None => {}
     }
 
-    if depth == &0 {
-        return terminal_node_heuristic(board).into();
-    } else if board.is_terminal() {
-        return board.camel_order().into();
-    }
-
     let mut positions_accumulator = PositionAccumulator::new();
+    let (positions, boards) = calculate_game_step(board, depth);
+    positions_accumulator += positions;
 
-    for roll in board.potential_moves() {
-        let next_board = board.update(&roll);
-        let positions =
-            calculate_game_terminal_states(&next_board, &(depth - 1), transposition_table.clone());
-        positions_accumulator += positions;
+    match boards {
+        Some(boards) => {
+            for board in boards {
+                let positions = calculate_game_recursive(&board, &(depth - 1), transposition_table);
+                positions_accumulator += positions;
+            }
+        }
+        None => {}
     }
 
     transposition_table.update(board, *depth, positions_accumulator);
-
     return positions_accumulator;
 }
 
-fn seed_stack(stack: &ArrayQueue<(Board, u8)>, num_to_seed: usize) {
-    let mut num_seeded = stack.len();
-    while num_seeded < num_to_seed {
-        let (board, depth) = match stack.pop() {
-            Some((board, depth)) => (board, depth),
-            None => panic!(
-                "Failed to seed the stack with at least {} board states!",
-                num_seeded
-            ),
-        };
-        num_seeded -= 1;
-        for roll in board.potential_moves() {
-            let next_board = board.update(&roll);
-            match stack.push((next_board, depth - 1)) {
-                Ok(_) => {}
-                Err(_) => panic!("Exceeded probability stack!"),
-            };
-            num_seeded += 1;
-        }
+fn calculate_game_step(board: &Board, depth: &u8) -> (PositionAccumulator, Option<Vec<Board>>) {
+    if depth == &0 {
+        return (terminal_node_heuristic(board).into(), None);
+    } else if board.is_terminal() {
+        return (board.camel_order().into(), None);
     }
+
+    let mut boards = Vec::new();
+    for roll in board.potential_moves() {
+        let next_board = board.update(&roll);
+        boards.push(next_board)
+    }
+
+    return (PositionAccumulator::new(), Some(boards));
 }
 
 fn terminal_node_heuristic(board: &board::Board) -> board::CamelOrder {
     return board.camel_order();
 }
 
-// Calculating directly is expensive, especially if the values are known for each possible
+// Calculating directly is expensive, especially if the values are already known for each possible input
 fn terminal_round_states_from_board(board: &board::Board) -> u32 {
     match board.num_unrolled() {
-        0 => 1,
+        5 => 1, // Equivalent to zero, since the camel rolls are flipped automatically at round end
         1 => 3,
         2 => 18,
         3 => 162,
         4 => 1944,
-        5 => 1,
         _ => {
             panic!("Invalid number of unrolled camels!")
         }

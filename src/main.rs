@@ -5,6 +5,8 @@ mod probabilities;
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use crate::camel::create_camel;
+
 fn create_board() -> board::Board {
     let camels = [0, 2, 4, 6, 8];
     let oasis = [false; 16];
@@ -29,9 +31,12 @@ fn time_probabilities(n: u32) {
 
 fn main() {
     coz::thread_init();
-    let board = create_board();
+    let camels = [33, 31, 40, 50, 71];
+    let oasis = [false; 16];
+    let desert = [false; 16];
+    let board = board::Board::new(camels, oasis, desert);
     let (game_position_probabilies, round_position_probabilities, tile_probabilities) =
-        probabilities::solve_probabilities(board, 6, 124);
+        probabilities::solve_probabilities(board, 6, 14);
     println!(
         "{}\n{}\n{}\n",
         game_position_probabilies, round_position_probabilities, tile_probabilities
