@@ -1,7 +1,7 @@
-use crate::{board, constants};
+use crate::{constants, primitives::board};
 use crossbeam::utils::CachePadded;
 use std::ops::{Add, AddAssign, Deref, DerefMut};
-use std::sync::{atomic, Arc};
+use std::sync::atomic;
 
 #[derive(Clone, Copy)]
 pub struct PositionAccumulator([[u64; constants::NUM_CAMELS]; constants::NUM_CAMELS]);

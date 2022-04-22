@@ -1,4 +1,4 @@
-use crate::board;
+use crate::primitives::board;
 use crate::probabilities::accumulators::*;
 use std::collections::HashMap;
 

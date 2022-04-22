@@ -1,5 +1,5 @@
-use crate::camel::*;
 use crate::constants;
+use crate::primitives::camel::*;
 
 pub type Camels = [Camel; constants::NUM_CAMELS];
 pub type Terrain = [bool; constants::BOARD_SIZE];

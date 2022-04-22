@@ -1,17 +1,16 @@
-mod board;
-mod camel;
 mod constants;
+mod primitives;
 mod probabilities;
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::camel::create_camel;
+use crate::primitives::camel::create_camel;
 
-fn create_board() -> board::Board {
+fn create_board() -> primitives::board::Board {
     let camels = [0, 2, 4, 6, 8];
     let oasis = [false; 16];
     let desert = [false; 16];
-    let board = board::Board::new(camels, oasis, desert);
+    let board = primitives::board::Board::new(camels, oasis, desert);
     return board;
 }
 
@@ -34,13 +33,13 @@ fn main() {
     let camels = [33, 31, 40, 50, 71];
     let oasis = [false; 16];
     let desert = [false; 16];
-    let board = board::Board::new(camels, oasis, desert);
+    let board = primitives::board::Board::new(camels, oasis, desert);
     let (game_position_probabilies, round_position_probabilities, tile_probabilities) =
-        probabilities::solve_probabilities(board, 6, 14);
+        probabilities::solve_probabilities(board, 2, 1);
     println!(
         "{}\n{}\n{}\n",
         game_position_probabilies, round_position_probabilities, tile_probabilities
     );
 
-    time_probabilities(1000);
+    // time_probabilities(1000);
 }

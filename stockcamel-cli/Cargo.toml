@@ -1,0 +1,8 @@
+[package]
+name = "stockcamel-cli"
+version = "0.1.0"
+edition = "2018"
+authors = ["Tanner Sims"]
+
+[dependencies]
+stockcamel = { path = "../stockcamel" }

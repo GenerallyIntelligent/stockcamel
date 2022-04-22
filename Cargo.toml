@@ -1,16 +1,6 @@
-[package]
-name = "camel_up"
-version = "0.1.0"
-edition = "2018"
+[workspace]
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
-[dependencies]
-rand = "0.8"
-crossbeam = "0.8.1"
-parking_lot = "0.12.0"
-rayon = "1.5.1"
-coz = "0.1"
-
-[profile.release]
-debug = true
+members = [
+    "stockcamel",
+    "stockcamel-cli",
+]

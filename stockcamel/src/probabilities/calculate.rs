@@ -1,13 +1,15 @@
-use crate::board;
-use crate::board::Board;
+use crate::primitives::board;
+use crate::primitives::board::Board;
 use crate::probabilities::accumulators::{
     AtomicPositionAccumulator, AtomicTileAccumulator, PositionAccumulator, TileAccumulator,
 };
 use crate::probabilities::odds::{CamelOdds, TileOdds};
+use crate::probabilities::sync::WorkerSync;
 use crate::probabilities::transposition::{GameTranspositionTable, RoundTranspositionTable};
 use crossbeam::queue::ArrayQueue;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use std::panic;
+use std::sync::atomic;
 
 pub fn solve_probabilities(
     board: board::Board,
@@ -22,14 +24,17 @@ pub fn solve_probabilities(
     let round_transposition_table = RoundTranspositionTable::new(1e5 as u32);
     let game_transposition_table = GameTranspositionTable::new(1e5 as u32);
 
-    let stack = ArrayQueue::new((num_workers * 2).max(12 * num_workers));
+    let stack = ArrayQueue::new((num_workers * 2).max(15 + 12 + 9 + 6 + 3 + 1));
     let _ = stack.push((board, depth));
 
     let transition_depth = depth - board.num_unrolled();
 
-    (0..num_workers).into_par_iter().for_each(|_| {
+    let worker_sync = WorkerSync::new(num_workers);
+    (0..num_workers).into_par_iter().for_each(|worker_id| {
         coz::thread_init();
         start_worker(
+            worker_id,
+            &worker_sync,
             &stack,
             1,
             &round_transposition_table,
@@ -53,6 +58,8 @@ pub fn solve_probabilities(
 }
 
 fn start_worker(
+    worker_id: usize,
+    worker_syncronization: &WorkerSync,
     stack: &ArrayQueue<(Board, u8)>,
     stack_minimum: usize,
     round_transposition_table: &RoundTranspositionTable,
@@ -65,10 +72,27 @@ fn start_worker(
     let mut private_game_positions = PositionAccumulator::new();
     let mut private_round_positions = PositionAccumulator::new();
     let mut private_tile_positions = TileAccumulator::new();
+
     loop {
         let (board, depth) = match stack.pop() {
             Some((board, depth)) => (board, depth),
-            None => break,
+            None => {
+                worker_syncronization[worker_id].store(true, atomic::Ordering::Relaxed);
+                let waiting_result = loop {
+                    if let Some((board, depth)) = stack.pop() {
+                        worker_syncronization[worker_id].store(false, atomic::Ordering::Relaxed);
+                        break Some((board, depth));
+                    }
+                    if worker_syncronization.all() {
+                        println!("Worker {} terminating!", worker_id);
+                        break None;
+                    }
+                };
+                match waiting_result {
+                    Some((board, depth)) => (board, depth),
+                    None => break,
+                }
+            }
         };
         let current_stack_size = stack.len();
         if current_stack_size < stack_minimum && depth > transition_depth {
@@ -92,6 +116,7 @@ fn start_worker(
             // Solve for game step and add to public stack
             let (game_accumulations, next_boards) = calculate_game_step(&board, &depth);
             private_game_positions += game_accumulations;
+            private_round_positions += board.camel_order().into();
             match next_boards {
                 Some(next_boards) => {
                     for next_board in next_boards {

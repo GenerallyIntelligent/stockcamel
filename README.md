@@ -1,28 +1,5 @@
-OG Version:
-5 Deep:
-	24 : 18
-	1 : 4
-	2 : 16
-	3 : 16
-	4 : 17
-	5 : 18
-6 Deep:
-	1 : 51
-	2 : 183
-	3 : 171
-	5 : 206
-	24 : 201
-	
-New Version:
-5 Deep:
-	24 : 11
-	1 : 5
-	2 : 16
-	3 : 13
-	4 : 13
-	8 : 11
-	60 : 12
-	
-6 Deep:
-	1 : 56
-	24 : 169
+# stockcamel
+A game engine for recommending moves in the game [Camel Up](https://boardgamegeek.com/boardgame/153938/camel). Solves given the current board state for the move which has the largest expected difference between its final score and the final score of the next best opponent.
+
+# cli
+TODO
